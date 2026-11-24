@@ -277,23 +277,34 @@ def test_fsrs7_and_rwkv_state_round_trip(platform, tmp_path) -> None:
         assert conf["jschoreels.fsrs"]["fsrs_params_7"] == params
         assert conf["jschoreels.rwkv"]["rwkv_review_new_cards_ignore_minimum_reviews"] is True
 
-        # changed on a, as normal syncs
+        # changed on a, as normal syncs. The RWKV boundary goes on a new card:
+        # a and b keep the first card's boundary in a config entry since the
+        # full sync, which update_card doesn't change.
         card = a.get_card(cid)
         card.memory_state = FSRSMemoryState(
             stability=13.5, difficulty=5.5, stability_internal=31.0, stability_fast=5.5
         )
         card.review_step_secs = 1200
         a.update_card(card)
+        cid2 = a.card_ids_of_note(add_note(a, "rwkv"))[0]
+        card2 = a.get_card(cid2)
+        card2.rwkv_history_reset_after = 1_700_000_100_456
+        a.update_card(card2)
         params = [0.5, 1.25, 2.5, 9.0, 7.5]
         conf = a.decks.get_config(1)
         conf["jschoreels.fsrs"]["fsrs_params_7"] = params
+        conf["jschoreels.rwkv"]["rwkv_review_minimum_reviews_per_day"] = 20
         a.decks.update_config(conf)
         assert sync(a, auth_a) in NORMAL
         assert sync(b, auth_b) in NORMAL
         got = b.get_card(cid)
         assert got.memory_state == card.memory_state
         assert got.review_step_secs == 1200
-        assert b.decks.get_config(1)["jschoreels.fsrs"]["fsrs_params_7"] == params
+        assert b.get_card(cid2).rwkv_history_reset_after == 1_700_000_100_456
+        conf = b.decks.get_config(1)
+        assert conf["jschoreels.fsrs"]["fsrs_params_7"] == params
+        assert conf["jschoreels.rwkv"]["rwkv_review_minimum_reviews_per_day"] == 20
+        assert conf["jschoreels.rwkv"]["rwkv_review_new_cards_ignore_minimum_reviews"] is True
     finally:
         a.close()
         b.close()

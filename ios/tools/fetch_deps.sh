@@ -26,6 +26,14 @@ if [ ! -x "$ROOT/.venv/bin/sip-build" ] || [ "$venv_python" != "$PYTHON_VERSION"
         "sip==$SIP_VERSION" "pyqt-builder==$PYQT_BUILDER_VERSION"
 fi
 
+# Python, Qt, PyQt6 and the packages (shared/versions.env, requirements.txt)
+# must be the ones the fork pins. The Anki update workflow moves them with
+# Anki's releases, not with the fork.
+"$ROOT/.venv/bin/python" -I "$ROOT/../shared/tools/anki_pins.py" check "$DEPS/anki" || {
+    echo "The Anki fork (shared/anki-fork.env) pins other versions: move the fork or the pins (shared/tools/anki_pins.py update)" >&2
+    exit 1
+}
+
 QT=$DEPS/qt/$QT_VERSION
 if [ ! -d "$QT/ios/lib/QtSvg.framework" ]; then
     uvx --from aqtinstall aqt install-qt mac desktop "$QT_VERSION" clang_64 \

@@ -14,7 +14,11 @@ The iPhone and iPad build the fork's Rust core from that checkout and its
 Python packages too (`shared/tools/anki_wheels.sh`: PyPI only has upstream
 Anki's). Move the fork by hand, to the commit the desktop fork you sync with
 runs: set `ANKI_FORK_COMMIT` and `ANKI_FORK_VERSION` (the fork's `.version`
-there). The phone's sync server keeps only the card data and preset options
+there). The fork's Python, Qt, PyQt6 and package pins must be the ones in
+`shared/versions.env` and `requirements.txt` (`shared/tools/anki_pins.py
+check`, `update`). The iOS build stops when they differ, e.g. on the `Anki
+update` workflow's pull requests, which move those files to Anki's next
+release. The phone's sync server keeps only the card data and preset options
 its own build knows, so the phone and the desktop should run the same
 commit.
 
