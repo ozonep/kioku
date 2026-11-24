@@ -40,9 +40,10 @@ KIOKU_TEAM=<team id> tools/build.sh  # signed for your devices (Xcode account)
 PyQt6/sip and other sources into `deps/`), `build_rust.sh`, `gen_pyqt.sh`,
 `../shared/tools/prepare_site.sh` (the Anki fork's wheels, built from
 `deps/anki` by `../shared/tools/anki_wheels.sh`: needs `ninja` or `n2`),
-`../shared/tools/build_pymupdf.sh` (MuPDF
-and PyMuPDF into `../build/pymupdf/`), then CMake (Xcode generator) and
-`xcodebuild`. Versions come from `../shared/versions.env`.
+`../shared/tools/build_pymupdf.sh` (MuPDF and PyMuPDF into
+`../build/pymupdf/`), then CMake (Xcode generator) and `xcodebuild`.
+Versions come from `../shared/versions.env`, the Anki fork's commit from
+`../shared/anki-fork.env`.
 
 The unsigned `.ipa` can be installed with a sideloading tool that re-signs
 apps (AltStore, Sideloadly, …).

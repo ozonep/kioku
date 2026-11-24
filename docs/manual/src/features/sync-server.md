@@ -50,10 +50,10 @@ Things to know:
 
 ### FSRS-7 and RWKV-Instant
 
-This build of Kioku runs the [Anki FSRS-7 fork](https://github.com/ozonep/anki),
-and on the iPhone, iPad and native Android its sync server is that fork's
-server. Everything the fork adds syncs through the phone like the rest of
-the collection:
+On the iPhone and iPad, this build of Kioku runs the
+[Anki FSRS-7 fork](https://github.com/ozonep/anki), and its sync server is
+that fork's server. What the fork adds syncs through the phone like the rest
+of the collection:
 
 - each card's FSRS-7 memory state (both stabilities), the delay of a
   learning step scheduled as a review and RWKV's review-history boundary,
@@ -61,14 +61,14 @@ the collection:
 - the presets' FSRS-7 parameters and RWKV options (in `jschoreels.fsrs` and
   `jschoreels.rwkv`), and the deck and collection settings the fork adds.
 
-The server passes card data and presets on as the device sent them, also the
-parts it doesn't know: computers running a newer version of the fork than the
-phone's lose nothing when they sync with each other through the phone. A
-device that runs upstream Anki or AnkiDroid drops the fork's extra card data
-when it changes a card, as with AnkiWeb; the fork rebuilds the FSRS-7 memory
+Sync it with Anki desktop built from the same commit of the fork: the server
+keeps only the card data and preset options its own build knows, so what a
+newer fork adds doesn't survive syncing through an older phone. A device
+that runs upstream Anki or AnkiDroid drops the fork's extra card data when
+it changes a card, as with AnkiWeb; the fork rebuilds the FSRS-7 memory
 state from the review history when that happens.
 
-The Termux variant runs Termux's upstream Anki and its server.
+Native Android and the Termux variant run upstream Anki and its server.
 
 
 ## Step by step: syncing a computer or tablet with the phone

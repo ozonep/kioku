@@ -3,7 +3,7 @@
 # (skipping what is already there) and set up the host Python venv with sip.
 #   deps/qt/<ver>/{android_arm64_v8a,<host>}  Qt for Android and its host tools
 #   deps/python-android-<ver>                 Anki's Python for Android (tools/build_python.sh)
-#   deps/anki                                 the Anki fork's source (rsbridge, wheels)
+#   deps/anki                                 Anki source (for rsbridge)
 #   deps/sdist/*                              PyQt6, PyQt6-sip, orjson, rpds-py, markupsafe
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -43,7 +43,7 @@ done
 
 "$ROOT/tools/build_python.sh"
 
-# the Anki fork at ANKI_COMMIT with shared/patches/ applied; Kioku runs its sync server
+# Anki at ANKI_TAG with shared/patches/ applied; Kioku runs its sync server
 # on a thread it can stop and start again (Preferences > Advanced)
 "$ROOT/../shared/tools/anki_source.sh" "$DEPS/anki"
 

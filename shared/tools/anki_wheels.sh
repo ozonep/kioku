@@ -1,6 +1,6 @@
 #!/bin/bash
 # Build Anki's Python packages, the aqt and anki wheels, from the source that
-# shared/tools/anki_source.sh checked out, with Anki's own build
+# shared/tools/anki_source.sh --fork checked out, with Anki's own build
 # (RELEASE=1 ./ninja wheels: minified web pages, as Anki's releases), into
 # <anki dir>/out/wheels. PyPI only has upstream Anki's wheels, and the fork's
 # Python code has to come from the same commit as its Rust core: they check

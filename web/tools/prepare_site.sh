@@ -18,19 +18,6 @@ rsync -a --delete --delete-excluded --exclude __pycache__ --exclude 'rubicon*' \
     --exclude OpenSSL --exclude 'pyopenssl-*' --exclude numpy --exclude 'numpy-*' \
     --exclude PIL --exclude 'pillow-*' --exclude jieba --exclude 'jieba-*' \
     "$KIOKU_REPO/ios/build/site/" "$ROOT/build/site/"
-# Anki itself: upstream Anki's wheels of ANKI_TAG (tools/env.sh), not the
-# fork's that the apps bundle; anki's wheel only for its Python files
-SITE=$ROOT/build/site
-rm -rf "$SITE"/aqt "$SITE"/_aqt "$SITE"/anki "$SITE"/aqt-*.dist-info "$SITE"/anki-*.dist-info
-WHEELS=$(mktemp -d)
-trap 'rm -rf "$WHEELS"' EXIT
-"$KIOKU_REPO/ios/.venv/bin/python" -m pip download -q --no-deps --only-binary :all: \
-    --platform any --python-version "$PYTHON_VERSION" --implementation py --abi none \
-    -d "$WHEELS" "aqt==$ANKI_PY_VERSION"
-"$KIOKU_REPO/ios/.venv/bin/python" -m pip download -q --no-deps --only-binary :all: \
-    --platform manylinux_2_35_x86_64 -d "$WHEELS" "anki==$ANKI_PY_VERSION"
-for w in "$WHEELS"/*.whl; do unzip -qo -DD "$w" -d "$SITE"; done
-find "$SITE/anki" -name '*.so' -delete
 # urllib3 takes sys.platform == "emscripten" for Pyodide and imports its
 # `js` module; without Pyodide, keep its plain (socket) connections
 python3 - "$ROOT/build/site/urllib3/__init__.py" <<'PY'

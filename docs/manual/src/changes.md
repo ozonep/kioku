@@ -4,18 +4,16 @@ All releases: [GitHub Releases](https://github.com/krmanik/kioku/releases).
 
 ## 0.2.12
 
-- iPhone, iPad, Android native: Kioku runs the
+- iPhone, iPad: Kioku runs the
   [Anki FSRS-7 fork](https://github.com/ozonep/anki) (26.09.4+fsrs7)
   instead of Anki 26.09.4: FSRS-7 scheduling and the RWKV-Curve and
   RWKV-Instant schedulers, with the fork's Deck Options, simulator and
   statistics. Its Python packages and Rust core are built from the same
-  commit of the fork. The Termux and web variants and the Docker image
-  still run Anki 26.09.4.
-- Sync server on the phone: FSRS-7 memory states, RWKV history
-  boundaries and the fork's preset options sync through it. The server
-  passes card data and presets on as devices sent them, so a computer
-  with a newer version of the fork loses nothing when it syncs through
-  an older phone.
+  commit of the fork. Native Android, Termux and the Docker image still
+  run Anki 26.09.4; the web variant isn't built from this fork.
+- Sync server on the iPhone and iPad: FSRS-7 memory states, RWKV history
+  boundaries and the fork's preset options sync through it, with Anki
+  desktop built from the same commit of the fork.
 - Web: menus and the reviewer's buttons (Edit, More) work again. Each
   showed an error (`'WebView' has no attribute 'set_touchable'`). A tap
   on a page now closes an open menu, as in the apps.

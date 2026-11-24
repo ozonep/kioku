@@ -241,8 +241,9 @@ def test_fsrs7_and_rwkv_state_round_trip(platform, tmp_path) -> None:
     phone, by full and by normal syncs: FSRS-7's memory state, the delay of a
     learning step scheduled as a review and RWKV's history boundary (all in
     the card's data), and the fork's preset options (in the preset's
-    jschoreels.fsrs and jschoreels.rwkv objects). The server also keeps what
-    a newer fork than its own adds there (rslib's kioku/lossless.rs tests)."""
+    jschoreels.fsrs and jschoreels.rwkv objects). The server and both clients
+    are the same commit of the fork, as the phone and the desktop it syncs
+    with must be: the server keeps only what its own build knows."""
     from anki.cards import FSRSMemoryState
 
     s = settings()

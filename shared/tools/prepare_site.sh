@@ -1,35 +1,41 @@
 #!/bin/bash
 # Assemble the site-packages that the iOS and native Android apps bundle:
-# Anki's Python packages (the aqt and anki wheels of the fork, built from its
-# source by shared/tools/anki_wheels.sh: aqt is pure Python with the web
-# assets compiled, anki's wheel is only used for its Python files), the
-# pure-Python dependencies, and the Python halves of orjson and markupsafe
-# (their native parts are built into the app or not needed).
+# Anki's Python packages (aqt is pure Python with the web assets compiled,
+# anki's wheel is only used for its Python files), the pure-Python
+# dependencies, and the Python halves of orjson and markupsafe (their native
+# parts are built into the app or not needed). Anki's packages are PyPI's
+# wheels of ANKI_PY_VERSION, or with <anki dir> the wheels that
+# shared/tools/anki_wheels.sh builds from that checkout: the iPhone and iPad
+# take the Anki fork's (shared/tools/anki_source.sh --fork), which PyPI
+# doesn't have.
 # Usage: prepare_site.sh <python with pip> <sdist dir> <output dir> [<anki dir>]
-#   <anki dir>: Anki's source (shared/tools/anki_source.sh); default: the
-#   anki folder next to <sdist dir> (deps/anki)
 set -euo pipefail
 SHARED=$(cd "$(dirname "$0")/.." && pwd)
 source "$SHARED/versions.env"
 PYTHON=$1
 SDIST=$2
 SITE=$3
-ANKI=${4:-$SDIST/../anki}
+ANKI=${4:-}
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
-"$SHARED/tools/anki_wheels.sh" "$ANKI"
-rm -rf "$SITE" && mkdir -p "$SITE"
-
 grep -vE '^(orjson|rpds-py|markupsafe)==|^ *#' "$SHARED/requirements.txt" > "$TMP/pure.txt"
+mkdir -p "$TMP/anki"
+if [ -n "$ANKI" ]; then
+    "$SHARED/tools/anki_wheels.sh" "$ANKI"
+    cp "$ANKI"/out/wheels/aqt-*.whl "$ANKI"/out/wheels/anki-*.whl "$TMP/anki/"
+else
+    echo "aqt==$ANKI_PY_VERSION" >> "$TMP/pure.txt"
+    "$PYTHON" -m pip download -q --no-deps --only-binary :all: \
+        --platform manylinux_2_35_x86_64 -d "$TMP/anki" "anki==$ANKI_PY_VERSION"
+fi
+rm -rf "$SITE" && mkdir -p "$SITE"
 "$PYTHON" -m pip download -q --no-deps --only-binary :all: \
     --platform any --python-version "$PYTHON_VERSION" --implementation py --abi none \
     -d "$TMP/wheels" -r "$TMP/pure.txt"
 # -DD: today's time, not the wheel's fixed one (2020-02-02 in Anki's wheels),
-# so a file of the same size in a new build isn't skipped by rsync -a
-for w in "$TMP"/wheels/*.whl "$ANKI"/out/wheels/aqt-*.whl "$ANKI"/out/wheels/anki-*.whl; do
-    unzip -qo -DD "$w" -d "$SITE"
-done
+# so a file of the same size in a new release or build isn't skipped by rsync -a
+for w in "$TMP"/wheels/*.whl "$TMP"/anki/*.whl; do unzip -qo -DD "$w" -d "$SITE"; done
 find "$SITE" -name '*.so' -delete
 
 # The fork's RWKV models: the app reads them from aqt/rwkv_inference

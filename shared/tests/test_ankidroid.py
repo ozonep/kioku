@@ -579,11 +579,11 @@ def test_anki_backup_drops_the_lock(droid, tmp_path) -> None:
     SQLite has it open, and closing that descriptor drops the process's
     POSIX locks on the file, SQLite's exclusive lock included. AnkiDroid's
     core does the same, so after one of its backups Kioku can open the
-    collection while AnkiDroid still has it open. (The Anki fork Kioku runs
-    also locks its RWKV cache next to the collection, which keeps a second
-    copy of the fork out, but not Kioku while AnkiDroid's upstream core has
-    the collection.) If this test fails, Anki fixed it: check AnkiDroid's
-    core and revisit FOLDER_READY."""
+    collection while AnkiDroid still has it open. (These tests run the Anki
+    fork of the iPhone and iPad, which also locks its RWKV cache next to the
+    collection and so keeps a second process of the fork out on its own: the
+    test takes SQLite's lock itself.) If this test fails, Anki fixed it:
+    check AnkiDroid's core and revisit FOLDER_READY."""
     path = str(droid / "collection.anki2")
     col = Collection(path)
     locker = [sys.executable, "-c", LOCKER, path]

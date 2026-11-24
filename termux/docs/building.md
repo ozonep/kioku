@@ -87,9 +87,8 @@ and python-orjson are reused while their recipes are unchanged. GitHub drops cac
 days, so a weekly scheduled run of the same workflow restores them to keep them. Untick "Use the
 build cache" to build from scratch.
 
-The apps run the Anki FSRS-7 fork; Termux still runs upstream Anki at `ANKI_TAG`, the release
-the fork is based on. Kioku's "Anki update" workflow bumps `ANKI_TAG` and `versionName` when the
-fork moves to another release, and its pull request says whether the release exists yet.
+Kioku's "Anki update" workflow bumps `ANKI_TAG` and `versionName`, and its pull request says
+whether the release exists yet.
 
 ### By hand in a Codespace
 

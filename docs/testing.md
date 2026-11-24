@@ -41,10 +41,11 @@ KIOKU_BUILD=1 shared/tools/test_all.sh    # build and install first
 ```
 
 - `host`: `shared/tests/run.sh`, Kioku's Python code against the Anki fork
-  at `ANKI_COMMIT` (its wheels, built with Kioku's patched rsbridge). It also runs the installed Anki's
-  request interceptor against the Qt WebEngine stand-in and checks that every
-  `QWebEngine*` name aqt uses exists there, so an Anki update that needs more
-  of Qt WebEngine fails here before it reaches a phone.
+  that the iPhone and iPad run (`shared/anki-fork.env`: its wheels, built in
+  `ios/deps/anki` with Kioku's patched rsbridge). It also runs the installed
+  Anki's request interceptor against the Qt WebEngine stand-in and checks
+  that every `QWebEngine*` name aqt uses exists there, so an Anki update that
+  needs more of Qt WebEngine fails here before it reaches a phone.
 - `android` (the emulator or phone adb sees, `ANDROID_SERIAL`), `ios-sim`
   (a booted simulator with Kioku, `KIOKU_SIM`), `ios` (a connected iPhone,
   `KIOKU_DEVICE`): `shared/tools/apptest.py` relaunches the development
@@ -57,7 +58,7 @@ removes it at the end:
 
 | Test | What it does |
 | --- | --- |
-| version, profile | Anki is `ANKI_VERSION`; a profile and collection are open |
+| version, profile | Anki is `ANKI_FORK_VERSION` (iPhone, iPad) or `ANKI_TAG` (Android); a profile and collection are open |
 | add | adds Basic and Cloze notes, one with a picture |
 | add-window | Add window: the note's text reaches the editor page, Add saves it to the deck, the editor clears; `activeWindow()` is Add |
 | editor-formatting | Add window: on a selection in a field, bold, italic, underline, superscript, subscript (on and off again), text colour, highlight, remove formatting, MathJax inline, cloze (Cloze note); underline at the caret, then a typed letter is underlined |

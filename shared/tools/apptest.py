@@ -45,10 +45,11 @@ REPORTS = os.path.join(ROOT, "build", "test-reports")
 
 def versions() -> dict[str, str]:
     out = {}
-    with open(os.path.join(ROOT, "shared", "versions.env"), encoding="utf8") as f:
-        for line in f:
-            if m := re.match(r"^([A-Z0-9_]+)=(.*)$", line.strip()):
-                out[m[1]] = m[2].strip('"')
+    for name in ("versions.env", "anki-fork.env"):
+        with open(os.path.join(ROOT, "shared", name), encoding="utf8") as f:
+            for line in f:
+                if m := re.match(r"^([A-Z0-9_]+)=(.*)$", line.strip()):
+                    out[m[1]] = m[2].strip('"')
     return out
 
 
@@ -376,7 +377,8 @@ def main() -> int:
     if not args.target:
         ap.error("target required")
     target: Target = {"android": Android, "ios-sim": IosSim, "ios": Iphone}[args.target](args.device)
-    expected = versions().get("ANKI_VERSION", "")
+    # the iPhone and iPad run the Anki fork, native Android Anki's release
+    expected = versions().get("ANKI_TAG" if args.target == "android" else "ANKI_FORK_VERSION", "")
 
     print(f"== {args.target}: {'relaunching Kioku' if not args.no_launch else 'using the running app'}")
     if not args.no_launch:

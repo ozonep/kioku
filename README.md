@@ -44,14 +44,15 @@ your own server, used from any browser. (Kioku, 記憶, is Japanese for
 "memory".)
 
 **This fork of Kioku** builds the [Anki FSRS-7 fork](https://github.com/ozonep/anki)
-(follows [JSchoreels/anki](https://github.com/JSchoreels/anki)): FSRS-7
-scheduling and the RWKV-Curve and RWKV-Instant schedulers on the iPhone,
-iPad and native Android, with the fork's Python code and Rust core built
-from the same commit (`ANKI_REPO` and `ANKI_COMMIT` in
-[`shared/versions.env`](shared/versions.env)). The phone's sync server
-carries the fork's FSRS-7 and RWKV data. The Termux and web variants and the
-Docker image still run upstream Anki 26.09.4. The RWKV model weights are not
-under Anki's license: read the fork's
+(follows [JSchoreels/anki](https://github.com/JSchoreels/anki)) for the
+iPhone and iPad: FSRS-7 scheduling and the RWKV-Curve and RWKV-Instant
+schedulers, with the fork's Python code and Rust core built from the commit
+in [`shared/anki-fork.env`](shared/anki-fork.env). Keep it at the commit
+your desktop fork runs: the phone's sync server carries the FSRS-7 and RWKV
+data its own build knows. Native Android, Termux and the Docker image still
+run upstream Anki 26.09.4; the web variant reuses the iOS build's Anki, so
+it isn't built from this fork. The RWKV model weights are not under Anki's
+license: read the fork's
 [weights notice](https://github.com/ozonep/anki/blob/main/qt/aqt/rwkv_inference/WEIGHTS-NOTICE.md)
 before you share builds.
 
@@ -87,7 +88,8 @@ More, including the web and server variants: [screenshots](docs/screenshots.md).
 ## Features
 
 - **Anki desktop, unmodified**: the Anki FSRS-7 fork's own Python code and
-  Rust core (26.09.4+fsrs7), with a thin layer that fits it to a phone.
+  Rust core on the iPhone and iPad (26.09.4+fsrs7), Anki 26.09.4's
+  elsewhere, with a thin layer that fits it to a phone.
 - **Desktop add-ons** from AnkiWeb, installed inside the app.
 - **Made for touch**: big type, drag to scroll, the keyboard opens on text
   fields, windows fit the phone in portrait and landscape.
@@ -126,9 +128,10 @@ Anki itself is in [Anki's manual](https://docs.ankiweb.net/).
 | Web | [web/README.md](web/README.md#quick-start) | `web/tools/test/smoke.py` |
 | Docker | `docker build --build-arg ANKI_PY_VERSION=… desktop` ([desktop/README.md](desktop/README.md)) | `desktop/test/run.sh` |
 
-The Anki fork and commit (and the upstream Anki release of the Termux and
-Docker variants) are set in [`shared/versions.env`](shared/versions.env);
-the builds make the fork's Python wheels from that commit
+The Anki release of the other variants is set in
+[`shared/versions.env`](shared/versions.env), the Anki fork of the iPhone
+and iPad in [`shared/anki-fork.env`](shared/anki-fork.env); the iOS build
+makes the fork's Python wheels from that commit
 ([`shared/tools/anki_wheels.sh`](shared/tools/anki_wheels.sh)), which needs
 rustup, ninja and a network connection. GitHub Actions build the apps
 on a `v*` tag and attach them to the release; the Docker image is built,

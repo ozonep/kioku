@@ -19,12 +19,7 @@ for p in "$ROOT"/patches/{mio-1.0.4,tokio-1.47.1,socket2-0.6.0,reqwest-0.12.23,r
         mkdir -p "$D/patched" && cp -R "$REG/$crate" "$D/patched/" && patch -s -p0 -d "$D/patched/$crate" < "$p"
     fi
 done
-cd "$ANKI_SRC"
-# rsbridge refuses to load unless its build hash matches the Python package's
-# (PyPI's wheels of ANKI_TAG, tools/prepare_site.sh)
-mkdir -p out
-HASH=$(git rev-parse --short=8 HEAD)
-[ "$(cat out/buildhash 2>/dev/null)" = "$HASH" ] || echo "$HASH" > out/buildhash
+cd "$KIOKU_REPO/ios/deps/anki"
 # the patches change the lock file; keep Anki's own untouched
 mkdir -p "$ROOT/build"
 cp Cargo.lock "$ROOT/build/Cargo.lock.anki"

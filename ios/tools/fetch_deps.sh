@@ -10,6 +10,13 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 source "$ROOT/../shared/versions.env"
 DEPS=$ROOT/deps
 mkdir -p "$DEPS/sdist"
+
+# the Anki fork (shared/anki-fork.env) with shared/patches/ applied; Kioku
+# runs its sync server on a thread it can stop and start again (Preferences >
+# Advanced). Before the cd: KIOKU_ANKI_REPO may be relative to the current
+# directory.
+"$ROOT/../shared/tools/anki_source.sh" --fork "$DEPS/anki"
+
 cd "$DEPS"
 
 venv_python=$("$ROOT/.venv/bin/python" -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null || true)
@@ -43,10 +50,6 @@ if [ ! -d python-ios/Python.xcframework ] || ! python_ios; then
     mkdir -p python-ios && tar xzf python-ios.tar.gz -C python-ios && rm python-ios.tar.gz
     python_ios || { echo "BeeWare $tag is not Python $PYTHON_FULL_VERSION (shared/versions.env):" >&2; head -1 python-ios/VERSIONS >&2; exit 1; }
 fi
-
-# the Anki fork at ANKI_COMMIT with shared/patches/ applied; Kioku runs its sync server
-# on a thread it can stop and start again (Preferences > Advanced)
-"$ROOT/../shared/tools/anki_source.sh" "$DEPS/anki"
 
 sdist() {  # sdist <pypi name> <version> <unpacked dir>
     [ -d "sdist/$3" ] && return

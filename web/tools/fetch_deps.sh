@@ -1,13 +1,10 @@
 #!/bin/bash
-# Emscripten 4.0.7 (the version Qt 6.11's wasm libraries are built with),
-# Qt for WebAssembly (multithread, QT_VERSION) and Anki's source (upstream
-# Anki at ANKI_TAG with Kioku's patches, tools/env.sh) into deps/. Host Qt
-# comes from the Kioku repository's iOS build (tools/env.sh).
+# Emscripten 4.0.7 (the version Qt 6.11's wasm libraries are built with) and
+# Qt for WebAssembly (multithread, QT_VERSION) into deps/. Host Qt comes from the
+# Kioku repository's iOS build (tools/env.sh).
 set -euo pipefail
 source "$(dirname "$0")/env.sh"
 mkdir -p "$ROOT/deps"
-KIOKU_ANKI_REPO=https://github.com/ankitects/anki KIOKU_ANKI_COMMIT=$ANKI_TAG \
-    "$KIOKU_REPO/shared/tools/anki_source.sh" "$ANKI_SRC"
 cd "$ROOT/deps"
 if [ ! -d emsdk ]; then
     git clone -q --depth 1 https://github.com/emscripten-core/emsdk.git
