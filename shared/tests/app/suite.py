@@ -2,7 +2,7 @@
 # the iOS Simulator), sent through the development command channel
 # (shared/python/kioku/devtools.py) by shared/tools/apptest.py, which prepends
 #
-#   EXPECTED_VERSION = "26.09.4"   # Anki version the build must report
+#   EXPECTED_VERSION = "26.09.4+fsrs7"  # Anki version the build must report
 #   EXPECTED_RUNTIME = {...}       # Python, Qt, PyQt the release pins (versions.env)
 #   ONLY = []                      # test names to run (empty: all)
 #   NETWORK = True                 # run the tests that need the internet

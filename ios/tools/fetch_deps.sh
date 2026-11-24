@@ -3,7 +3,7 @@
 # already there) and set up the host Python venv with sip.
 #   deps/qt/<ver>/{ios,macos}   Qt for iOS and the macOS host tools it needs
 #   deps/python-ios             BeeWare's Python.xcframework
-#   deps/anki                   Anki source (for the Rust core, rsbridge)
+#   deps/anki                   the Anki fork's source (Rust core, rsbridge, wheels)
 #   deps/sdist/*                PyQt6, PyQt6-sip, orjson, rpds-py, markupsafe
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -44,7 +44,7 @@ if [ ! -d python-ios/Python.xcframework ] || ! python_ios; then
     python_ios || { echo "BeeWare $tag is not Python $PYTHON_FULL_VERSION (shared/versions.env):" >&2; head -1 python-ios/VERSIONS >&2; exit 1; }
 fi
 
-# Anki at ANKI_TAG with shared/patches/ applied; Kioku runs its sync server
+# the Anki fork at ANKI_COMMIT with shared/patches/ applied; Kioku runs its sync server
 # on a thread it can stop and start again (Preferences > Advanced)
 "$ROOT/../shared/tools/anki_source.sh" "$DEPS/anki"
 

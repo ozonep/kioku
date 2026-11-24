@@ -562,27 +562,40 @@ def test_operations_wait_while_closed(folder_mw, platform) -> None:
     assert ran == [True] and not ankidroid._deferred
 
 
+# Another process taking SQLite's exclusive lock on the collection file
+LOCKER = textwrap.dedent(
+    """
+    import sqlite3, sys
+    db = sqlite3.connect(sys.argv[1], timeout=0)
+    db.execute("begin exclusive")
+    print("locked", flush=True)
+    """
+)
+
+
 def test_anki_backup_drops_the_lock(droid, tmp_path) -> None:
     """Why FOLDER is not offered: Anki's backup reads collection.anki2
     through a second file descriptor (rslib's read_locked_db_file) while
     SQLite has it open, and closing that descriptor drops the process's
     POSIX locks on the file, SQLite's exclusive lock included. AnkiDroid's
     core does the same, so after one of its backups Kioku can open the
-    collection while AnkiDroid still has it open. If this test fails, Anki
-    fixed it: check AnkiDroid's core and revisit FOLDER_READY."""
+    collection while AnkiDroid still has it open. (The Anki fork Kioku runs
+    also locks its RWKV cache next to the collection, which keeps a second
+    copy of the fork out, but not Kioku while AnkiDroid's upstream core has
+    the collection.) If this test fails, Anki fixed it: check AnkiDroid's
+    core and revisit FOLDER_READY."""
     path = str(droid / "collection.anki2")
     col = Collection(path)
+    locker = [sys.executable, "-c", LOCKER, path]
     try:
         add_note(col, "changed since the last backup")
         with pytest.raises(subprocess.CalledProcessError):
-            subprocess.run(
-                [sys.executable, "-c", HOLDER, path], input="\n", capture_output=True,
-                text=True, check=True, timeout=60,
-            )
+            subprocess.run(locker, capture_output=True, text=True, check=True, timeout=60)
         backups = tmp_path / "backups"
         backups.mkdir()
         col.create_backup(backup_folder=str(backups), force=True, wait_for_completion=True)
-        # a second process now opens it although this one still has it open
-        release(hold(path))
+        # a second process now locks it although this one still has it open
+        out = subprocess.run(locker, capture_output=True, text=True, check=True, timeout=60)
+        assert out.stdout.strip() == "locked"
     finally:
         col.close()

@@ -376,7 +376,7 @@ def main() -> int:
     if not args.target:
         ap.error("target required")
     target: Target = {"android": Android, "ios-sim": IosSim, "ios": Iphone}[args.target](args.device)
-    expected = versions().get("ANKI_TAG", "")
+    expected = versions().get("ANKI_VERSION", "")
 
     print(f"== {args.target}: {'relaunching Kioku' if not args.no_launch else 'using the running app'}")
     if not args.no_launch:

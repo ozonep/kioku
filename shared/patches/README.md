@@ -1,12 +1,19 @@
 # Patches to Anki's source
 
-`shared/tools/anki_source.sh` checks out Anki at `ANKI_TAG`
-(`shared/versions.env`) and applies every `anki-*.patch` here; both
-`fetch_deps.sh` and `shared/tests/run.sh` call it. Changing `ANKI_TAG` is
-enough to move to another release: the next build replaces the checkout and
-applies the patches again.
+Kioku builds the Anki FSRS-7 fork (`ANKI_REPO`, FSRS-7 and RWKV-Instant), not
+an Anki release. `shared/tools/anki_source.sh` checks out the fork at
+`ANKI_COMMIT` (`shared/versions.env`) and applies every `anki-*.patch` here;
+both `fetch_deps.sh` and `shared/tests/run.sh` call it, and
+`shared/tools/anki_wheels.sh` builds the fork's Python packages from that
+checkout. Changing `ANKI_COMMIT` (and `ANKI_VERSION`, the fork's `.version`)
+is enough to move to another commit: the next build replaces the checkout,
+applies the patches again and builds new wheels.
 
-## Keeping patches easy to carry to the next release
+To build a commit that isn't pushed yet, from the desktop fork next to this
+repository: `KIOKU_ANKI_REPO=../anki KIOKU_ANKI_COMMIT=HEAD ios/tools/build.sh`
+(any clone and any commit, branch or tag of it).
+
+## Keeping patches easy to carry to the next commit
 
 A patch conflicts only where it changes lines that Anki changes too, so:
 
@@ -20,19 +27,18 @@ A patch conflicts only where it changes lines that Anki changes too, so:
   Replacement functions should take `*args, **kwargs` when they only wrap
   the original, so that new parameters pass through.
 
-## When a new release arrives
+## When the fork moves
 
 The daily `Anki update` workflow opens a pull request whose description has
 the report of `shared/tools/anki_drift.py`: whether the patches apply, and
 each Anki function Kioku replaces that changed (with the diff). To run it by
-hand:
+hand between two commits (or tags) of the fork:
 
 ```sh
-git clone --filter=blob:none --no-checkout https://github.com/ankitects/anki /tmp/anki
-git -C /tmp/anki fetch origin tag 26.08.1 tag 26.09.3
-python3 -I shared/tools/anki_drift.py /tmp/anki 26.08.1 26.09.3
+git clone --filter=blob:none --no-checkout https://github.com/ozonep/anki /tmp/anki
+python3 -I shared/tools/anki_drift.py /tmp/anki <old commit> <new commit>
 ```
 
-If a patch no longer applies, check out the new tag, apply the patch with
+If a patch no longer applies, check out the new commit, apply the patch with
 `git apply --3way` or by hand, and regenerate it with
 `git add -N . && git diff > shared/patches/<name>.patch`.

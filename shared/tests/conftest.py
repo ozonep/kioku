@@ -1,5 +1,6 @@
-"""Host tests for Kioku's Python code, run with desktop Anki's Python packages
-and an rsbridge built from deps/anki with Kioku's patches (shared/tests/run.sh).
+"""Host tests for Kioku's Python code, run with the Anki fork's Python packages
+built from deps/anki with Kioku's patches, rsbridge included
+(shared/tests/run.sh).
 
 kioku_platform is replaced by a stub whose folders are temporary.
 """

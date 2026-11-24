@@ -78,12 +78,16 @@ jobs:
             build/wheels/ios
           key: ios-programs-${{ hashFiles('shared/versions.env', 'shared/programs/*', 'shared/tools/build_programs.sh', 'shared/tools/build_wheels.sh') }}
 
+      # Anki's Rust core for the app, and the Anki fork's aqt and anki wheels
+      # (shared/tools/anki_wheels.sh builds them again when the fork's commit
+      # or Kioku's patches changed)
       - name: Cache Rust builds
         uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
             ios/deps/anki/target
+            ios/deps/anki/out/wheels
           key: ios-rust-${{ hashFiles('shared/versions.env') }}-${{ github.run_id }}
           restore-keys: ios-rust-${{ hashFiles('shared/versions.env') }}-
 
