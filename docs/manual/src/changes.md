@@ -9,8 +9,8 @@ All releases: [GitHub Releases](https://github.com/krmanik/kioku/releases).
   instead of Anki 26.09.4: FSRS-7 scheduling and the RWKV-Curve and
   RWKV-Instant schedulers, with the fork's Deck Options, simulator and
   statistics. Its Python packages and Rust core are built from the same
-  commit of the fork. The Termux variant and the Docker image still run
-  Anki 26.09.4.
+  commit of the fork. The Termux and web variants and the Docker image
+  still run Anki 26.09.4.
 - Sync server on the phone: FSRS-7 memory states, RWKV history
   boundaries and the fork's preset options sync through it. The server
   passes card data and presets on as devices sent them, so a computer

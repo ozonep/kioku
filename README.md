@@ -49,9 +49,9 @@ scheduling and the RWKV-Curve and RWKV-Instant schedulers on the iPhone,
 iPad and native Android, with the fork's Python code and Rust core built
 from the same commit (`ANKI_REPO` and `ANKI_COMMIT` in
 [`shared/versions.env`](shared/versions.env)). The phone's sync server
-carries the fork's FSRS-7 and RWKV data. The Termux variant and the Docker
-image still run upstream Anki 26.09.4. The RWKV model weights are not under
-Anki's license: read the fork's
+carries the fork's FSRS-7 and RWKV data. The Termux and web variants and the
+Docker image still run upstream Anki 26.09.4. The RWKV model weights are not
+under Anki's license: read the fork's
 [weights notice](https://github.com/ozonep/anki/blob/main/qt/aqt/rwkv_inference/WEIGHTS-NOTICE.md)
 before you share builds.
 

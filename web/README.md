@@ -84,13 +84,13 @@ Python 3, Ninja and Chrome.
 
 ```sh
 cd web
-tools/fetch_deps.sh      # Emscripten 4.0.7, Qt for WebAssembly, fonts
+tools/fetch_deps.sh      # Emscripten 4.0.7, Qt for WebAssembly, fonts, upstream Anki's source
 tools/build_python.sh    # Anki's CPython for Emscripten (libffi, mpdecimal, OpenSSL first)
 tools/build_rust.sh      # Anki's Rust core for wasm32-unknown-emscripten
 tools/build_rpds.sh      # rpds-py (jsonschema, add-on manifests)
 tools/build_orjson.sh    # orjson (faster JSON for Anki's core)
 tools/gen_pyqt.sh        # PyQt6 bindings for Qt for WebAssembly
-tools/prepare_site.sh    # Anki's Python packages
+tools/prepare_site.sh    # Anki's Python packages (upstream Anki's, from PyPI)
 tools/build.sh           # build/cmake: kioku.wasm, app.html, sw.js, ...
 python3 tools/serve.py build/cmake 8765
 ```
