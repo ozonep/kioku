@@ -20,6 +20,7 @@ Options:
     --no-smoke       skip the crash sweep
     --no-launch      use the running app as it is
     --device ID      adb serial, simulator name/UDID or iPhone UDID
+    --anki-commit H  expected Anki build hash for custom builds (empty skips)
 """
 
 from __future__ import annotations
@@ -252,13 +253,30 @@ def wait_ready(target: Target, timeout: float) -> bool:
     return False
 
 
-def run_suite(target: Target, expected: str, only: list[str], network: bool,
+def expected_anki(
+    target: str, pins: dict[str, str], commit_override: str | None = None
+) -> tuple[str, str]:
+    """Expected Anki version and git commit/build hash for target."""
+    # the iPhone and iPad run the Anki fork, native Android Anki's release
+    if target == "android":
+        version = pins.get("ANKI_TAG", "")
+        commit = ""
+    else:
+        version = pins.get("ANKI_FORK_VERSION", "")
+        commit = pins.get("ANKI_FORK_COMMIT", "")
+    if commit_override is not None:
+        commit = commit_override
+    return version, commit
+
+
+def run_suite(target: Target, expected: str, expected_commit: str, only: list[str], network: bool,
               timeout: float) -> tuple[list[dict], str]:
     pins = versions()
     # the versions the Anki release pins (shared/tools/anki_pins.py): a build
     # left with an old Python or Qt fails t_version
     runtime = {k: pins.get(k, "") for k in ("PYTHON_FULL_VERSION", "QT_VERSION", "PYQT6_VERSION")}
-    header = (f"EXPECTED_VERSION = {expected!r}\nEXPECTED_RUNTIME = {runtime!r}\n"
+    header = (f"EXPECTED_VERSION = {expected!r}\nEXPECTED_BUILDHASH = {expected_commit!r}\n"
+              f"EXPECTED_RUNTIME = {runtime!r}\n"
               f"ONLY = {only!r}\nNETWORK = {network!r}\n")
     with open(SUITE, encoding="utf8") as f:
         code = header + f.read()
@@ -367,6 +385,11 @@ def main() -> int:
     ap.add_argument("--no-network", action="store_true")
     ap.add_argument("--no-smoke", action="store_true")
     ap.add_argument("--no-launch", action="store_true")
+    ap.add_argument(
+        "--anki-commit",
+        default=None,
+        help="expected Anki build hash for custom builds (7-40 hex digits, or empty to skip)",
+    )
     ap.add_argument("--timeout", type=float, default=900, help="seconds for the whole suite")
     ap.add_argument("--list", action="store_true", help="list the test names")
     args = ap.parse_args()
@@ -376,9 +399,10 @@ def main() -> int:
         return 0
     if not args.target:
         ap.error("target required")
+    if args.anki_commit and not re.fullmatch(r"[0-9a-fA-F]{7,40}", args.anki_commit):
+        ap.error("--anki-commit must be a 7-40 digit hex hash, or empty to skip")
     target: Target = {"android": Android, "ios-sim": IosSim, "ios": Iphone}[args.target](args.device)
-    # the iPhone and iPad run the Anki fork, native Android Anki's release
-    expected = versions().get("ANKI_TAG" if args.target == "android" else "ANKI_FORK_VERSION", "")
+    expected, expected_commit = expected_anki(args.target, versions(), args.anki_commit)
 
     print(f"== {args.target}: {'relaunching Kioku' if not args.no_launch else 'using the running app'}")
     if not args.no_launch:
@@ -389,9 +413,10 @@ def main() -> int:
         return 2
 
     sections: dict[str, tuple[list[dict], str]] = {}
-    print(f"== in-app tests (Anki {expected} expected)")
+    expected_desc = f"{expected} ({expected_commit[:8]})" if expected_commit else expected
+    print(f"== in-app tests (Anki {expected_desc} expected)")
     only = [t for t in args.only.split(",") if t]
-    sections["flows"] = run_suite(target, expected, only, not args.no_network, args.timeout)
+    sections["flows"] = run_suite(target, expected, expected_commit, only, not args.no_network, args.timeout)
     if sections["flows"][1]:
         print(f"!! {sections['flows'][1]}")
     if not args.no_smoke and target.alive():

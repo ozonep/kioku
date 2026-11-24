@@ -301,6 +301,8 @@ def test_fsrs7_and_rwkv_state_round_trip(platform, tmp_path) -> None:
         assert got.memory_state == card.memory_state
         assert got.review_step_secs == 1200
         assert b.get_card(cid2).rwkv_history_reset_after == 1_700_000_100_456
+        mirror = b.get_config(f"rwkvHistoryReset_{cid2}")
+        assert isinstance(mirror, dict) and mirror.get("after") == 1_700_000_100_456
         conf = b.decks.get_config(1)
         assert conf["jschoreels.fsrs"]["fsrs_params_7"] == params
         assert conf["jschoreels.rwkv"]["rwkv_review_minimum_reviews_per_day"] == 20

@@ -3,6 +3,7 @@
 # (shared/python/kioku/devtools.py) by shared/tools/apptest.py, which prepends
 #
 #   EXPECTED_VERSION = "26.09.4+fsrs7"  # Anki version the build must report
+#   EXPECTED_BUILDHASH = ""        # Anki git commit/build hash (empty: don't check)
 #   EXPECTED_RUNTIME = {...}       # Python, Qt, PyQt the release pins (versions.env)
 #   ONLY = []                      # test names to run (empty: all)
 #   NETWORK = True                 # run the tests that need the internet
@@ -30,6 +31,7 @@ try:
     EXPECTED_VERSION  # noqa: B018
 except NameError:
     EXPECTED_VERSION = ""
+    EXPECTED_BUILDHASH = ""
     EXPECTED_RUNTIME = {}
     ONLY = []
     NETWORK = True
@@ -183,14 +185,24 @@ def in_thread(fn):
 def t_version():
     import platform as pyplatform
 
+    from anki.buildinfo import buildhash
     from aqt.qt import QT_VERSION_STR, PYQT_VERSION_STR
 
     info = (
-        f"Anki {aqt.appVersion}, Qt {QT_VERSION_STR}, PyQt {PYQT_VERSION_STR}, "
+        f"Anki {aqt.appVersion} ({buildhash}), Qt {QT_VERSION_STR}, PyQt {PYQT_VERSION_STR}, "
         f"Python {pyplatform.python_version()}, {sys.platform}"
     )
     if EXPECTED_VERSION:
         check(aqt.appVersion == EXPECTED_VERSION, f"{info}; expected Anki {EXPECTED_VERSION}")
+    expected_hash = globals().get("EXPECTED_BUILDHASH", "").strip().lower()
+    if expected_hash:
+        actual_hash = buildhash.strip().lower()
+        hash_ok = bool(actual_hash) and (
+            actual_hash.startswith(expected_hash)
+            if len(actual_hash) >= len(expected_hash)
+            else len(actual_hash) >= 8 and expected_hash.startswith(actual_hash)
+        )
+        check(hash_ok, f"{info}; expected Anki build hash {expected_hash}")
     # add-ons expect desktop Anki's Python and Qt (AnkiHub failed on 3.14)
     runtime = {
         "PYTHON_FULL_VERSION": pyplatform.python_version(),

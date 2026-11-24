@@ -63,13 +63,20 @@ else
             resolved=$(git -C "$REPO" rev-parse --verify -q "$COMMIT^{commit}" || true)
         else
             # ls-remote also lists refs that only end in /$COMMIT: take the
-            # exact one, in git rev-parse's order (HEAD or a full name, a
-            # tag, a branch); an annotated tag's commit is its peeled ^{} entry
-            resolved=$(git ls-remote "$REPO" "$COMMIT" "$COMMIT^{}" | awk -v name="$COMMIT" '
+            # exact one, in git rev-parse's order (HEAD or a full name, refs/,
+            # tags, heads, remotes, remotes/*/HEAD); an annotated tag's commit
+            # is its peeled ^{} entry
+            resolved=$(git ls-remote -- "$REPO" "$COMMIT" "$COMMIT^{}" \
+                "refs/remotes/$COMMIT/HEAD" "refs/remotes/$COMMIT/HEAD^{}" | awk -v name="$COMMIT" '
                 { sha[$2] = $1 }
                 END {
-                    n = split(name " refs/" name " refs/tags/" name " refs/heads/" name, refs, " ")
-                    for (i = 1; i <= n; i++) {
+                    refs[1] = name
+                    refs[2] = "refs/" name
+                    refs[3] = "refs/tags/" name
+                    refs[4] = "refs/heads/" name
+                    refs[5] = "refs/remotes/" name
+                    refs[6] = "refs/remotes/" name "/HEAD"
+                    for (i = 1; i <= 6; i++) {
                         if ((refs[i] "^{}") in sha) { print sha[refs[i] "^{}"]; exit }
                         if (refs[i] in sha) { print sha[refs[i]]; exit }
                     }
@@ -82,10 +89,12 @@ else
         COMMIT=$resolved
     fi
     SOURCE="the Anki fork at $COMMIT"
-    # GitHub serves any commit of a repository by its hash
+    # GitHub serves any commit of a repository by its hash; set origin so
+    # relative submodule URLs resolve beside the source repository
     fetch() {
         git init -q "$DIR.new"
-        git -C "$DIR.new" fetch -q --depth 1 "$REPO" "$COMMIT"
+        git -C "$DIR.new" remote add origin "$REPO"
+        git -C "$DIR.new" fetch -q --depth 1 origin "$COMMIT"
         git -C "$DIR.new" -c advice.detachedHead=false checkout -q FETCH_HEAD
     }
     if [ "$(git -C "$DIR" rev-parse HEAD 2> /dev/null)" != "$COMMIT" ]; then
