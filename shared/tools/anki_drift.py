@@ -1,4 +1,5 @@
-"""What changed between two Anki releases that Kioku depends on.
+"""What changed between two Anki releases, or two commits of the Anki fork
+Kioku builds (ANKI_REPO), that Kioku depends on.
 
 Kioku changes Anki's Python code at runtime (replacing functions and methods,
 or their __code__) instead of patching its source, and patches only a few
@@ -13,10 +14,9 @@ across releases unless upstream changes it, so this report lists:
   view that Kioku's stand-in for Qt WebEngine serves, the web server);
 - whether shared/patches/anki-*.patch apply to the new release.
 
-Usage: python3 -I anki_drift.py <anki git dir> <old tag> <new tag> > report.md
-The git dir needs both tags; a partial clone is enough:
-    git clone --filter=blob:none --no-checkout https://github.com/ankitects/anki
-    git -C anki fetch origin tag <old> tag <new>
+Usage: python3 -I anki_drift.py <anki git dir> <old> <new> > report.md
+<old> and <new> are tags or commits the git dir has; a partial clone is enough:
+    git clone --filter=blob:none --no-checkout https://github.com/ozonep/anki
 """
 
 from __future__ import annotations

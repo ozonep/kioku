@@ -1,19 +1,25 @@
-# Checks daily for a new Anki release and opens a pull request that moves all
-# three variants to it, then starts their builds on the PR branch.
+# Checks daily for new commits on the main branch of the Anki fork Kioku
+# builds (ANKI_REPO in shared/versions.env: FSRS-7 and RWKV-Instant) and opens
+# a pull request that moves Kioku to the newest one, then starts the builds on
+# the PR branch. One PR (branch anki-update/fork) follows the fork: each run
+# moves it to the fork's newest commit.
 #
-# - iOS and native Android: shared/versions.env (ANKI_TAG, ANKI_PY_VERSION, and
-#   Python, Qt, PyQt6, sip, packages at the versions the release pins:
-#   shared/tools/anki_pins.py) and shared/requirements.txt, compiled with
-#   Anki's uv.lock as constraints.
-# - Termux: the default versionName. Its build downloads the anki .deb from the
-#   krmanik/termux-packages release anki-<ANKI_TAG>; the PR says when that
-#   release does not exist yet (run that repository's anki workflow).
+# - iOS and native Android (and the web variant, which builds the iOS
+#   checkout): shared/versions.env (ANKI_COMMIT, ANKI_VERSION; ANKI_TAG and
+#   ANKI_PY_VERSION when the fork moves to another Anki release; Python, Qt,
+#   PyQt6, sip, packages at the versions the fork pins:
+#   shared/tools/anki_pins.py) and shared/requirements.txt, compiled with the
+#   fork's uv.lock as constraints. The builds make the fork's Python wheels
+#   themselves (shared/tools/anki_wheels.sh).
+# - Termux and the Docker image still run upstream Anki (the anki release of
+#   krmanik/termux-packages, PyPI): when the fork moves to another upstream
+#   release, the Termux default versionName follows it, and the PR says when
+#   the Termux release does not exist yet (run that repository's anki
+#   workflow).
 #
 # The PR description reports what changed in the parts of Anki that Kioku
-# replaces at runtime or patches (shared/tools/anki_drift.py).
-#
-# Waits until Anki's wheels for the release are on PyPI. Builds started from
-# here only produce workflow artifacts (no release).
+# replaces at runtime or patches (shared/tools/anki_drift.py). Builds started
+# from here only produce workflow artifacts (no release).
 name: Anki update
 
 on:
@@ -21,8 +27,8 @@ on:
     - cron: "17 6 * * *"
   workflow_dispatch:
     inputs:
-      tag:
-        description: "Anki release tag (empty: latest)"
+      ref:
+        description: "Commit, branch or tag of the Anki fork (empty: main)"
         required: false
         default: ""
 
@@ -39,30 +45,36 @@ jobs:
 
       - uses: astral-sh/setup-uv@v6
 
-      - name: Latest Anki release
+      - name: Newest commit of the Anki fork
         id: anki
         env:
           GH_TOKEN: ${{ github.token }}
-          INPUT_TAG: ${{ github.event.inputs.tag }}
+          INPUT_REF: ${{ github.event.inputs.ref }}
         run: |
-          tag=${INPUT_TAG:-$(gh api repos/ankitects/anki/releases/latest --jq .tag_name)}
-          current=$(sed -n 's/^ANKI_TAG=//p' shared/versions.env)
-          # PyPI normalises 26.08.1 to 26.8.1
-          py=$(uvx --from packaging python -c "from packaging.version import Version; print(Version('$tag'))")
-          echo "Anki: latest $tag (PyPI $py), current $current"
-          if [ "$tag" = "$current" ]; then
+          url=$(sed -n 's/^ANKI_REPO=//p' shared/versions.env)
+          repo=${url#https://github.com/}
+          current=$(sed -n 's/^ANKI_COMMIT=//p' shared/versions.env)
+          commit=$(gh api "repos/$repo/commits/${INPUT_REF:-main}" --jq .sha)
+          echo "Anki fork $repo: newest $commit, current $current"
+          if [ "$commit" = "$current" ]; then
             echo "Up to date."; echo "update=false" >> "$GITHUB_OUTPUT"; exit 0
           fi
-          if ! curl -fsS -o /dev/null "https://pypi.org/pypi/aqt/$py/json"; then
-            echo "aqt $py is not on PyPI yet; trying again tomorrow."
-            echo "update=false" >> "$GITHUB_OUTPUT"; exit 0
-          fi
+          version=$(gh api -H "Accept: application/vnd.github.raw+json" \
+            "repos/$repo/contents/.version?ref=$commit" | tr -d '[:space:]')
+          # the upstream release it is based on: 26.09.4+fsrs7 -> 26.09.4,
+          # which PyPI normalises to 26.9.4
+          tag=${version%%+*}
+          py=$(uvx --from packaging python -c "from packaging.version import Version; print(Version('$tag'))")
           {
             echo "update=true"
+            echo "repo=$repo"
+            echo "commit=$commit"
+            echo "short=${commit::7}"
+            echo "current=$current"
+            echo "version=$version"
             echo "tag=$tag"
             echo "py=$py"
-            echo "current=$current"
-            echo "branch=anki-update/$tag"
+            echo "current_tag=$(sed -n 's/^ANKI_TAG=//p' shared/versions.env)"
           } >> "$GITHUB_OUTPUT"
 
       - name: Update iOS and Android
@@ -70,18 +82,21 @@ jobs:
         id: update
         env:
           GH_TOKEN: ${{ github.token }}
+          REPO: ${{ steps.anki.outputs.repo }}
+          COMMIT: ${{ steps.anki.outputs.commit }}
+          CURRENT: ${{ steps.anki.outputs.current }}
+          VERSION: ${{ steps.anki.outputs.version }}
           TAG: ${{ steps.anki.outputs.tag }}
           PY: ${{ steps.anki.outputs.py }}
-          CURRENT: ${{ steps.anki.outputs.current }}
         run: |
           old_py=$(sed -n 's/^ANKI_PY_VERSION=//p' shared/versions.env)
-          sed -i "s/^ANKI_TAG=.*/ANKI_TAG=$TAG/; s/^ANKI_PY_VERSION=.*/ANKI_PY_VERSION=$PY/" shared/versions.env
+          sed -i "s/^ANKI_COMMIT=.*/ANKI_COMMIT=$COMMIT/; s/^ANKI_VERSION=.*/ANKI_VERSION=$VERSION/; s/^ANKI_TAG=.*/ANKI_TAG=$TAG/; s/^ANKI_PY_VERSION=.*/ANKI_PY_VERSION=$PY/" shared/versions.env
           sed -i "1s/(aqt\/anki $old_py)/(aqt\/anki $PY)/" shared/requirements.in
-          # Python, Qt, PyQt6, sip and the packages at the release's pins
-          git clone -q --filter=blob:none --no-checkout https://github.com/ankitects/anki "$RUNNER_TEMP/anki"
-          git -C "$RUNNER_TEMP/anki" fetch -q origin tag "$CURRENT" tag "$TAG"
+          # Python, Qt, PyQt6, sip and the packages at the fork's pins
+          git clone -q --filter=blob:none --no-checkout "https://github.com/$REPO" "$RUNNER_TEMP/anki"
+          git -C "$RUNNER_TEMP/anki" fetch -q origin "$CURRENT" "$COMMIT"
           old_python=$(sed -n 's/^PYTHON_FULL_VERSION=//p' shared/versions.env)
-          python3 -I shared/tools/anki_pins.py update "$RUNNER_TEMP/anki" "$TAG"
+          python3 -I shared/tools/anki_pins.py update "$RUNNER_TEMP/anki" "$COMMIT"
           python=$(sed -n 's/^PYTHON_FULL_VERSION=//p' shared/versions.env)
           if [ "$python" != "$old_python" ]; then
             # BeeWare's iOS support package with that Python, if out yet
@@ -92,7 +107,7 @@ jobs:
               sed -i "s/^PYTHON_APPLE_SUPPORT_TAG=.*/PYTHON_APPLE_SUPPORT_TAG=$apple/" shared/versions.env
             fi
           fi
-          python3 -I shared/tools/anki_pins.py constraints "$RUNNER_TEMP/anki" "$TAG" > "$RUNNER_TEMP/anki-constraints.txt"
+          python3 -I shared/tools/anki_pins.py constraints "$RUNNER_TEMP/anki" "$COMMIT" > "$RUNNER_TEMP/anki-constraints.txt"
           uv pip compile -q -p "${python%.*}" -c "$RUNNER_TEMP/anki-constraints.txt" \
             --custom-compile-command "shared/tools/anki_pins.py constraints android/deps/anki > c.txt; uv pip compile -p ${python%.*} -c c.txt shared/requirements.in -o shared/requirements.txt" \
             shared/requirements.in -o shared/requirements.txt
@@ -103,12 +118,12 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           # aqt's and anki's declared dependencies, for the PR description
           {
-            echo "### Dependencies declared by aqt/anki $PY"
+            echo "### Dependencies declared by aqt/anki $VERSION at ${COMMIT::7}"
             echo '```'
-            for pkg in aqt anki; do
-              curl -fsS "https://pypi.org/pypi/$pkg/$PY/json" \
-                | python3 -c "import json,sys; print('\n'.join(json.load(sys.stdin)['info']['requires_dist'] or []))"
-            done | grep -v 'extra ==' | sort -u
+            for project in qt pylib; do
+              git -C "$RUNNER_TEMP/anki" show "$COMMIT:$project/pyproject.toml" \
+                | python3 -c "import sys, tomllib; print('\n'.join(tomllib.load(sys.stdin.buffer)['project'].get('dependencies', [])))"
+            done | sort -u
             echo '```'
           } > "$RUNNER_TEMP/deps.md"
 
@@ -116,11 +131,11 @@ jobs:
         if: steps.anki.outputs.update == 'true'
         id: drift
         env:
-          TAG: ${{ steps.anki.outputs.tag }}
+          COMMIT: ${{ steps.anki.outputs.commit }}
           CURRENT: ${{ steps.anki.outputs.current }}
         run: |
           # cloned by the update step
-          if python3 -I shared/tools/anki_drift.py "$RUNNER_TEMP/anki" "$CURRENT" "$TAG" > "$RUNNER_TEMP/drift.md"; then
+          if python3 -I shared/tools/anki_drift.py "$RUNNER_TEMP/anki" "$CURRENT" "$COMMIT" > "$RUNNER_TEMP/drift.md"; then
             echo "clean=true" >> "$GITHUB_OUTPUT"
           else
             echo "clean=false" >> "$GITHUB_OUTPUT"
@@ -132,9 +147,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.anki.outputs.tag }}
-          CURRENT: ${{ steps.anki.outputs.current }}
+          CURRENT_TAG: ${{ steps.anki.outputs.current_tag }}
         run: |
-          sed -i "s/anki$CURRENT'/anki$TAG'/" termux/app/build.gradle
+          if [ "$TAG" = "$CURRENT_TAG" ]; then
+            echo "deb=unchanged" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          sed -i "s/anki$CURRENT_TAG'/anki$TAG'/" termux/app/build.gradle
           if gh release view "anki-$TAG" -R krmanik/termux-packages >/dev/null 2>&1; then
             echo "deb=found" >> "$GITHUB_OUTPUT"
           else
@@ -146,9 +164,9 @@ jobs:
         id: pr
         uses: peter-evans/create-pull-request@v7
         with:
-          branch: ${{ steps.anki.outputs.branch }}
-          commit-message: "Update Anki to ${{ steps.anki.outputs.tag }}"
-          title: "Update Anki to ${{ steps.anki.outputs.tag }}"
+          branch: anki-update/fork
+          commit-message: "Update the Anki fork to ${{ steps.anki.outputs.version }} (${{ steps.anki.outputs.short }})"
+          title: "Update the Anki fork to ${{ steps.anki.outputs.version }} (${{ steps.anki.outputs.short }})"
           body-path: ${{ runner.temp }}/deps.md
           labels: anki-update
 
@@ -156,8 +174,12 @@ jobs:
         if: steps.pr.outputs.pull-request-number != ''
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.anki.outputs.tag }}
+          REPO: ${{ steps.anki.outputs.repo }}
+          COMMIT: ${{ steps.anki.outputs.commit }}
           CURRENT: ${{ steps.anki.outputs.current }}
+          VERSION: ${{ steps.anki.outputs.version }}
+          TAG: ${{ steps.anki.outputs.tag }}
+          CURRENT_TAG: ${{ steps.anki.outputs.current_tag }}
           DEB: ${{ steps.termux.outputs.deb }}
           NUMBER: ${{ steps.pr.outputs.pull-request-number }}
           DRIFT_CLEAN: ${{ steps.drift.outputs.clean }}
@@ -165,20 +187,18 @@ jobs:
           OLD_PYTHON: ${{ steps.update.outputs.old_python }}
           APPLE: ${{ steps.update.outputs.apple }}
         run: |
-          if [ "$DEB" = found ]; then
-            termux="- [x] Termux: release [anki-$TAG](https://github.com/krmanik/termux-packages/releases/tag/anki-$TAG) exists"
-          else
-            termux="- [ ] Termux: run the [anki workflow](https://github.com/krmanik/termux-packages/actions/workflows/anki.yml) of krmanik/termux-packages for $TAG, then rerun the Termux APK build"
-          fi
           {
-            echo "Anki [$TAG](https://github.com/ankitects/anki/releases/tag/$TAG) is out (was $CURRENT)."
+            echo "The Anki fork [$REPO](https://github.com/$REPO) has new commits: $VERSION at [${COMMIT::7}](https://github.com/$REPO/commit/$COMMIT) ([changes](https://github.com/$REPO/compare/$CURRENT...$COMMIT))."
             echo
             echo "- [x] iOS and native Android: \`shared/versions.env\`, \`shared/requirements.txt\`"
             if [ "$PYTHON" != "$OLD_PYTHON" ]; then
-              echo "- [ ] Python $OLD_PYTHON → $PYTHON (Anki's \`.python-version\`): iOS uses BeeWare's $APPLE (check it has $PYTHON), Android and web build it from source, Termux needs it in krmanik/termux-packages"
+              echo "- [ ] Python $OLD_PYTHON → $PYTHON (the fork's \`.python-version\`): iOS uses BeeWare's $APPLE (check it has $PYTHON), Android and web build it from source, Termux needs it in krmanik/termux-packages"
             fi
-            echo "$termux"
-            echo "- [ ] Builds: Android APK, iOS IPA and Termux APK were started on this branch (Actions tab)"
+            case "$DEB" in
+              found) echo "- [x] Termux (upstream Anki $CURRENT_TAG → $TAG): release [anki-$TAG](https://github.com/krmanik/termux-packages/releases/tag/anki-$TAG) exists" ;;
+              missing) echo "- [ ] Termux (upstream Anki $CURRENT_TAG → $TAG): run the [anki workflow](https://github.com/krmanik/termux-packages/actions/workflows/anki.yml) of krmanik/termux-packages for $TAG, then rerun the Termux APK build" ;;
+            esac
+            echo "- [ ] Builds: Android APK and iOS IPA were started on this branch (Actions tab)"
             echo "- [ ] Compare the dependencies below with \`shared/requirements.in\` and \`termux/tools/python-requirements.in\`"
             if [ "$DRIFT_CLEAN" = true ]; then
               echo "- [x] Nothing Kioku replaces in Anki changed, and the Rust patches apply (report below)"
@@ -193,18 +213,18 @@ jobs:
           } > "$RUNNER_TEMP/body.md"
           gh pr edit "$NUMBER" --body-file "$RUNNER_TEMP/body.md"
 
-      - name: Build all variants on the branch
+      - name: Build the variants on the branch
         if: steps.pr.outputs.pull-request-number != ''
         env:
           GH_TOKEN: ${{ github.token }}
-          BRANCH: ${{ steps.anki.outputs.branch }}
           DEB: ${{ steps.termux.outputs.deb }}
         run: |
           # pull requests opened with GITHUB_TOKEN start no workflows by
-          # themselves; dispatching them explicitly is allowed. The Termux
-          # build can only fail until krmanik/termux-packages has the deb.
+          # themselves; dispatching them explicitly is allowed. Termux runs
+          # upstream Anki: it is built again when that release moved and
+          # krmanik/termux-packages has its debs.
           workflows="android.yml ios.yml"
           [ "$DEB" = found ] && workflows="$workflows termux.yml"
           for workflow in $workflows; do
-            gh workflow run "$workflow" --ref "$BRANCH"
+            gh workflow run "$workflow" --ref anki-update/fork
           done
