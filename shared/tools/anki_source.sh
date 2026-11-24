@@ -11,7 +11,8 @@
 #      it is committed now (from this repository's folder):
 #        KIOKU_ANKI_REPO=../anki KIOKU_ANKI_COMMIT=HEAD ios/tools/build.sh
 #      A clone's path is relative to the current directory; a commit is a
-#      hash, or a branch, tag or HEAD of that repository.
+#      hash (all 40 digits for a URL), or a branch, tag or HEAD of that
+#      repository.
 # Usage: anki_source.sh [--fork] <dir>
 set -euo pipefail
 SHARED=$(cd "$(dirname "$0")/.." && pwd)
@@ -61,9 +62,18 @@ else
         if [ -d "$REPO" ]; then
             resolved=$(git -C "$REPO" rev-parse --verify -q "$COMMIT^{commit}" || true)
         else
-            # an annotated tag's commit is its peeled ^{} entry
-            resolved=$(git ls-remote "$REPO" "$COMMIT^{}" | awk 'NR == 1 {print $1}')
-            [ -n "$resolved" ] || resolved=$(git ls-remote "$REPO" "$COMMIT" | awk 'NR == 1 {print $1}')
+            # ls-remote also lists refs that only end in /$COMMIT: take the
+            # exact one, in git rev-parse's order (HEAD or a full name, a
+            # tag, a branch); an annotated tag's commit is its peeled ^{} entry
+            resolved=$(git ls-remote "$REPO" "$COMMIT" "$COMMIT^{}" | awk -v name="$COMMIT" '
+                { sha[$2] = $1 }
+                END {
+                    n = split(name " refs/" name " refs/tags/" name " refs/heads/" name, refs, " ")
+                    for (i = 1; i <= n; i++) {
+                        if ((refs[i] "^{}") in sha) { print sha[refs[i] "^{}"]; exit }
+                        if (refs[i] in sha) { print sha[refs[i]]; exit }
+                    }
+                }')
         fi
         if [ -z "$resolved" ]; then
             echo "$REPO has no commit $COMMIT" >&2

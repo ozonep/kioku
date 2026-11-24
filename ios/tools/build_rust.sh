@@ -21,9 +21,11 @@ export PROTOC=${PROTOC:-$(command -v protoc)}
 # rsbridge refuses to load unless its build hash matches the Python package's
 mkdir -p "$ROOT/deps/anki/out"
 HASH=$(git -C "$ROOT/deps/anki" rev-parse --short=8 HEAD)
-# rewriting it unchanged would still rebuild the whole core
+# rewriting it unchanged would still rebuild the whole core. No newline: Anki's
+# release build (shared/tools/anki_wheels.sh) writes it without one, and would
+# otherwise rewrite it.
 [ "$(cat "$ROOT/deps/anki/out/buildhash" 2>/dev/null)" = "$HASH" ] \
-    || echo "$HASH" > "$ROOT/deps/anki/out/buildhash"
+    || printf %s "$HASH" > "$ROOT/deps/anki/out/buildhash"
 
 cd "$ROOT/deps/anki"
 # link-time optimization, as Anki's release-lto profile: the translations are

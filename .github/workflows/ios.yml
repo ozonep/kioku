@@ -81,7 +81,8 @@ jobs:
       # Anki's Rust core for the app, and the Anki fork's aqt and anki wheels
       # (shared/tools/anki_wheels.sh builds them again when the fork's commit
       # or Kioku's patches changed). Only these depend on the fork's commit
-      # (shared/anki-fork.env).
+      # (shared/anki-fork.env). After the fork moves, the previous commit's
+      # builds are restored: cargo and anki_wheels.sh rebuild what changed.
       - name: Cache Rust builds
         uses: actions/cache@v4
         with:
@@ -89,8 +90,10 @@ jobs:
             ~/.cargo/registry
             ios/deps/anki/target
             ios/deps/anki/out/wheels
-          key: ios-rust-${{ hashFiles('shared/versions.env', 'shared/anki-fork.env') }}-${{ github.run_id }}
-          restore-keys: ios-rust-${{ hashFiles('shared/versions.env', 'shared/anki-fork.env') }}-
+          key: ios-rust-${{ hashFiles('shared/versions.env') }}-${{ hashFiles('shared/anki-fork.env') }}-${{ github.run_id }}
+          restore-keys: |
+            ios-rust-${{ hashFiles('shared/versions.env') }}-${{ hashFiles('shared/anki-fork.env') }}-
+            ios-rust-${{ hashFiles('shared/versions.env') }}-
 
       - name: Version
         id: version

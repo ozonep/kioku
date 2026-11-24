@@ -29,7 +29,7 @@ cd "$DIR"
 # android/tools/build_rust.sh); a release build writes the same one again
 mkdir -p out
 HASH=$(git rev-parse --short=8 HEAD)
-[ "$(cat out/buildhash 2> /dev/null)" = "$HASH" ] || echo "$HASH" > out/buildhash
+[ "$(cat out/buildhash 2> /dev/null)" = "$HASH" ] || printf %s "$HASH" > out/buildhash
 
 echo "Building Anki's wheels at $(git rev-parse HEAD) (a few minutes the first time)"
 rm -rf "$WHEELS"
