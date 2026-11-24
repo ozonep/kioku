@@ -13,6 +13,15 @@ To build a commit that isn't pushed yet, from the desktop fork next to this
 repository: `KIOKU_ANKI_REPO=../anki KIOKU_ANKI_COMMIT=HEAD ios/tools/build.sh`
 (any clone and any commit, branch or tag of it).
 
+`anki-syncserver.patch` adds Kioku's sync server code:
+
+- `rslib/src/sync/http_server/kioku.rs`: the server on a thread an app can
+  stop and start again (`pylib/rsbridge/kioku.rs` gives it to Python);
+- `rslib/src/sync/http_server/kioku/lossless.rs`: the server passes card data
+  and presets on as clients sent them, so that the fork's FSRS-7 and RWKV
+  state survives syncing through it, also from a newer fork than the one
+  built in; `handlers.rs` uses its functions instead of `sync::collection`'s.
+
 ## Keeping patches easy to carry to the next commit
 
 A patch conflicts only where it changes lines that Anki changes too, so:
@@ -20,8 +29,9 @@ A patch conflicts only where it changes lines that Anki changes too, so:
 - Put Kioku's code in **new files** (`kioku.rs` next to the file that needs
   it). New files never conflict.
 - Change upstream files only by **anchor lines**: a `mod kioku;`, one call
-  into Kioku's code, one replaced expression. `anki-syncserver.patch`
-  changes four lines of Anki's own files; the rest is new files.
+  into Kioku's code, one replaced expression or `use`.
+  `anki-syncserver.patch` changes seven lines of Anki's own files; the rest
+  is new files.
 - Prefer Python over patches. Kioku changes Anki's Python code at runtime
   (`shared/python/kioku/patches.py` and friends), which never conflicts.
   Replacement functions should take `*args, **kwargs` when they only wrap
@@ -41,4 +51,6 @@ python3 -I shared/tools/anki_drift.py /tmp/anki <old commit> <new commit>
 
 If a patch no longer applies, check out the new commit, apply the patch with
 `git apply --3way` or by hand, and regenerate it with
-`git add -N . && git diff > shared/patches/<name>.patch`.
+`git add -N . && git diff > shared/patches/<name>.patch`. Kioku's server
+tests run with the fork's own sync tests:
+`cargo test -p anki --lib sync::` in the checkout.

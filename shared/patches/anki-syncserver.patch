@@ -52,7 +52,7 @@ index 000000000..7399db0cb
 +    Ok(())
 +}
 diff --git a/pylib/rsbridge/lib.rs b/pylib/rsbridge/lib.rs
-index 654bff924..034ff534e 100644
+index 0c22844db..4aa4ef258 100644
 --- a/pylib/rsbridge/lib.rs
 +++ b/pylib/rsbridge/lib.rs
 @@ -1,6 +1,8 @@
@@ -64,7 +64,7 @@ index 654bff924..034ff534e 100644
  use anki::backend::init_backend;
  use anki::backend::Backend as RustBackend;
  use anki::log::set_global_logger;
-@@ -91,6 +93,7 @@ fn _rsbridge(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
+@@ -1945,6 +1947,7 @@ fn _rsbridge(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
      m.add_wrapped(wrap_pyfunction!(open_backend)).unwrap();
      m.add_wrapped(wrap_pyfunction!(initialize_logging)).unwrap();
      m.add_wrapped(wrap_pyfunction!(syncserver)).unwrap();
@@ -72,17 +72,40 @@ index 654bff924..034ff534e 100644
  
      Ok(())
  }
+diff --git a/rslib/src/sync/http_server/handlers.rs b/rslib/src/sync/http_server/handlers.rs
+index 441501b62..c90c0de72 100644
+--- a/rslib/src/sync/http_server/handlers.rs
++++ b/rslib/src/sync/http_server/handlers.rs
+@@ -8,11 +8,11 @@ use media::sanity::MediaSanityCheckResponse;
+ use media::upload::MediaUploadResponse;
+ 
+ use crate::prelude::*;
+-use crate::sync::collection::changes::server_apply_changes;
++use crate::sync::http_server::kioku::server_apply_changes;
+ use crate::sync::collection::changes::ApplyChangesRequest;
+ use crate::sync::collection::changes::UnchunkedChanges;
+-use crate::sync::collection::chunks::server_apply_chunk;
+-use crate::sync::collection::chunks::server_chunk;
++use crate::sync::http_server::kioku::server_apply_chunk;
++use crate::sync::http_server::kioku::server_chunk;
+ use crate::sync::collection::chunks::ApplyChunkRequest;
+ use crate::sync::collection::chunks::Chunk;
+ use crate::sync::collection::download::server_download;
 diff --git a/rslib/src/sync/http_server/kioku.rs b/rslib/src/sync/http_server/kioku.rs
 new file mode 100644
-index 000000000..69fefc733
+index 000000000..42573691d
 --- /dev/null
 +++ b/rslib/src/sync/http_server/kioku.rs
-@@ -0,0 +1,123 @@
+@@ -0,0 +1,132 @@
 +// Added by Kioku (shared/patches/anki-syncserver.patch): the sync server on a
 +// thread of its own, which an app can stop and start again in the same
 +// process. The stock server stops only on Ctrl+C, and an app embedding it has
-+// no terminal. Everything lives in this file so that the patch only touches
-+// two lines of mod.rs.
++// no terminal. Kioku's code lives in this file and in kioku/, so that the
++// patch only touches two lines of mod.rs and three of handlers.rs.
++//
++// The server also passes on card data and presets as clients sent them
++// (kioku/lossless.rs), so that the FSRS-7 / RWKV fork's scheduling state
++// survives syncing through it, also from a desktop fork newer than this one.
 +
 +use std::cell::RefCell;
 +use std::future::Future;
@@ -95,6 +118,11 @@ index 000000000..69fefc733
 +use super::default_ip_header;
 +use super::SimpleServer;
 +use super::SyncServerConfig;
++
++mod lossless;
++pub use lossless::server_apply_changes;
++pub use lossless::server_apply_chunk;
++pub use lossless::server_chunk;
 +
 +thread_local! {
 +    /// Set by BackgroundServer on its thread while make_server() runs there.
@@ -199,6 +227,602 @@ index 000000000..69fefc733
 +    pub fn stop(self) {
 +        let _ = self.stop.send(true);
 +        let _ = self.done.recv_timeout(std::time::Duration::from_secs(30));
++    }
++}
+diff --git a/rslib/src/sync/http_server/kioku/lossless.rs b/rslib/src/sync/http_server/kioku/lossless.rs
+new file mode 100644
+index 000000000..30c693c5e
+--- /dev/null
++++ b/rslib/src/sync/http_server/kioku/lossless.rs
+@@ -0,0 +1,590 @@
++// Added by Kioku (shared/patches/anki-syncserver.patch): the sync server passes
++// on what clients send it as they sent it, also what this build of Anki
++// doesn't know. handlers.rs calls these instead of the functions of the same
++// names in sync::collection.
++//
++// The server reads every object a client sends into Anki's structs and writes
++// it out of them again, which drops what those structs don't have. The
++// FSRS-7 / RWKV fork keeps scheduling state there: in each card's data
++// (FSRS-7's `s_int` and `s_fast` stabilities, `review_step_secs`, RWKV's
++// `rwkv_reset_after`) and in a preset's `jschoreels.fsrs` and
++// `jschoreels.rwkv` objects, which the fork rebuilds from the fields it knows.
++// This server knows those of its own fork commit; a desktop fork that is
++// newer than the phone's app can add more, which two clients syncing through
++// the phone would then lose. So:
++//
++// - a card's data is stored as the client sent it, and sent on as stored;
++// - a preset is kept as the client sent it, in PRESETS_FILE next to the
++//   collection (not in it: full syncs move the collection file), and sent on
++//   instead of the server's own rendering for as long as the collection has
++//   that version of it (same id, modification time and usn).
++//
++// Everything else a client sends already reaches other clients whole: notes,
++// reviews, decks, note types and the collection's config keep what Anki
++// doesn't know in fields of their own.
++
++use std::collections::HashMap;
++use std::path::PathBuf;
++
++use rusqlite::OptionalExtension;
++use serde::Deserialize;
++use serde::Serialize;
++use serde_json::Value;
++
++use crate::prelude::*;
++use crate::sync::collection::changes;
++use crate::sync::collection::changes::ApplyChangesRequest;
++use crate::sync::collection::changes::UnchunkedChanges;
++use crate::sync::collection::chunks;
++use crate::sync::collection::chunks::ApplyChunkRequest;
++use crate::sync::collection::chunks::Chunk;
++use crate::sync::collection::start::ServerSyncState;
++
++/// The presets as clients sent them, in the folder of the user's collection.
++pub(crate) const PRESETS_FILE: &str = "kioku-presets.json";
++
++/// Cards from a client: applied as usual, then given back the data string
++/// the client sent.
++pub fn server_apply_chunk(
++    req: ApplyChunkRequest,
++    col: &mut Collection,
++    state: &mut ServerSyncState,
++) -> Result<()> {
++    let sent: Vec<_> = req
++        .chunk
++        .cards
++        .iter()
++        .map(|card| (card.id, card.mtime, card.usn, card.data.clone()))
++        .collect();
++    chunks::server_apply_chunk(req, col, state)?;
++    // An applied card is stored with the modification time and usn it was
++    // sent with; a card the server kept its own copy of has others.
++    let mut restore = col.storage.db.prepare_cached(
++        "update cards set data = ?1 where id = ?2 and mod = ?3 and usn = ?4 and data != ?1",
++    )?;
++    for (id, mtime, usn, data) in sent {
++        restore.execute(rusqlite::params![data, id, mtime, usn])?;
++    }
++    Ok(())
++}
++
++/// Cards for a client, each with its data as stored.
++pub fn server_chunk(col: &mut Collection, state: &mut ServerSyncState) -> Result<Chunk> {
++    let mut chunk = chunks::server_chunk(col, state)?;
++    let mut stored = col
++        .storage
++        .db
++        .prepare_cached("select data from cards where id = ?")?;
++    for card in &mut chunk.cards {
++        let data: Option<Option<String>> =
++            stored.query_row([card.id], |row| row.get(0)).optional()?;
++        if let Some(Some(data)) = data {
++            card.data = data;
++        }
++    }
++    Ok(chunk)
++}
++
++/// Note types, decks, presets, tags and config both ways, with presets as
++/// clients sent them.
++pub fn server_apply_changes(
++    req: ApplyChangesRequest,
++    col: &mut Collection,
++    state: &mut ServerSyncState,
++) -> Result<UnchunkedChanges> {
++    let sent = presets(&mut serde_json::to_value(&req.changes)?)
++        .map(|presets| presets.clone())
++        .unwrap_or_default();
++    let outgoing = changes::server_apply_changes(req, col, state)?;
++
++    let path = presets_path(col)?;
++    let mut kept = KeptPresets::load(&path);
++    // What this server sends: computed before the client's changes were
++    // applied, so looked up in what was kept before them.
++    let mut outgoing_value = serde_json::to_value(&outgoing)?;
++    let mut replaced = false;
++    if let Some(presets) = presets(&mut outgoing_value) {
++        for preset in presets {
++            if let Some(original) = kept.get(preset) {
++                *preset = original.clone();
++                replaced = true;
++            }
++        }
++    }
++
++    let mut changed = false;
++    for preset in sent {
++        let Some(key) = PresetKey::of(&preset) else {
++            continue;
++        };
++        let applied = col
++            .storage
++            .get_deck_config(DeckConfigId(key.id))?
++            .is_some_and(|stored| stored.mtime_secs.0 == key.mtime && stored.usn.0 == key.usn);
++        if applied {
++            kept.0
++                .insert(key.id.to_string(), KeptPreset { key, preset });
++            changed = true;
++        }
++    }
++    if changed {
++        // presets deleted since don't need their copy
++        kept.0.retain(|_, kept| {
++            matches!(
++                col.storage.get_deck_config(DeckConfigId(kept.key.id)),
++                Ok(Some(_))
++            )
++        });
++        kept.save(&path)?;
++    }
++
++    if replaced {
++        Ok(serde_json::from_value(outgoing_value)?)
++    } else {
++        Ok(outgoing)
++    }
++}
++
++/// The presets of a serialized UnchunkedChanges ("decks": [decks, presets]).
++fn presets(changes: &mut Value) -> Option<&mut Vec<Value>> {
++    changes
++        .pointer_mut("/decks/1")
++        .and_then(Value::as_array_mut)
++}
++
++fn presets_path(col: &Collection) -> Result<PathBuf> {
++    Ok(col
++        .col_path
++        .parent()
++        .or_invalid("collection has no folder")?
++        .join(PRESETS_FILE))
++}
++
++/// Which version of a preset a JSON object is.
++#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
++struct PresetKey {
++    id: i64,
++    mtime: i64,
++    usn: i32,
++}
++
++impl PresetKey {
++    fn of(preset: &Value) -> Option<Self> {
++        Some(Self {
++            id: preset.get("id")?.as_i64()?,
++            mtime: preset.get("mod")?.as_i64()?,
++            usn: preset.get("usn")?.as_i64()?.try_into().ok()?,
++        })
++    }
++}
++
++#[derive(Serialize, Deserialize)]
++struct KeptPreset {
++    key: PresetKey,
++    preset: Value,
++}
++
++/// Preset id -> the last version of it a client sent.
++#[derive(Serialize, Deserialize, Default)]
++struct KeptPresets(HashMap<String, KeptPreset>);
++
++impl KeptPresets {
++    /// A missing or unreadable file keeps nothing: the presets are then sent
++    /// as the server reads them, as without this file.
++    fn load(path: &std::path::Path) -> Self {
++        match std::fs::read(path) {
++            Ok(data) => serde_json::from_slice(&data).unwrap_or_else(|err| {
++                tracing::warn!(?err, "ignoring unreadable {}", path.display());
++                Self::default()
++            }),
++            Err(_) => Self::default(),
++        }
++    }
++
++    fn save(&self, path: &std::path::Path) -> Result<()> {
++        let temp = path.with_extension("json.tmp");
++        std::fs::write(&temp, serde_json::to_vec(self)?)?;
++        std::fs::rename(&temp, path)?;
++        Ok(())
++    }
++
++    /// The client's version of this preset, if it is this version.
++    fn get(&self, preset: &Value) -> Option<&Value> {
++        let key = PresetKey::of(preset)?;
++        self.0
++            .get(&key.id.to_string())
++            .filter(|kept| kept.key == key)
++            .map(|kept| &kept.preset)
++    }
++}
++
++#[cfg(test)]
++mod test {
++    use serde_json::json;
++    use tempfile::tempdir;
++    use tempfile::TempDir;
++
++    use super::*;
++    use crate::card::FsrsMemoryState;
++    use crate::collection::CollectionBuilder;
++    use crate::deckconfig::DeckConfSchema11;
++    use crate::deckconfig::DeckConfig;
++    use crate::sync::collection::chunks::CardEntry;
++    use crate::sync::collection::finish::server_finish;
++    use crate::sync::collection::normal::NormalSyncer;
++    use crate::sync::collection::start::server_start;
++    use crate::sync::collection::start::StartRequest;
++    use crate::sync::collection::tests::with_active_server;
++    use crate::sync::collection::tests::SyncTestContext;
++    use crate::sync::http_client::HttpSyncClient;
++    use crate::sync::login::SyncAuth;
++
++    /// A collection as the server opens it, in a folder of its own.
++    fn server_collection() -> (TempDir, Collection) {
++        let folder = tempdir().unwrap();
++        let col = CollectionBuilder::new(folder.path().join("collection.anki2"))
++            .set_server(true)
++            .build()
++            .unwrap();
++        (folder, col)
++    }
++
++    /// A sync session as the server sees it, from a client that last synced
++    /// at usn 0.
++    fn start(col: &mut Collection, client_is_newer: bool) -> ServerSyncState {
++        let mut state = ServerSyncState::new("skey");
++        server_start(
++            StartRequest {
++                client_usn: Usn(0),
++                local_is_newer: client_is_newer,
++                deprecated_client_graves: None,
++            },
++            col,
++            &mut state,
++        )
++        .unwrap();
++        state
++    }
++
++    /// CardEntry has no Clone.
++    fn copy(card: &CardEntry) -> CardEntry {
++        serde_json::from_value(serde_json::to_value(card).unwrap()).unwrap()
++    }
++
++    /// The test server's login, for Anki's public full sync calls.
++    fn auth(client: &HttpSyncClient) -> SyncAuth {
++        SyncAuth {
++            hkey: client.sync_key.clone(),
++            endpoint: Some(client.endpoint.clone()),
++            io_timeout_secs: None,
++        }
++    }
++
++    fn no_changes() -> UnchunkedChanges {
++        serde_json::from_value(json!({"models": [], "decks": [[], []], "tags": []})).unwrap()
++    }
++
++    /// A newer client's card: the fork's fields and one this build lacks.
++    const NEWER_CARD_DATA: &str = r#"{"s":12.5,"s_int":30.25,"s_fast":4.5,"d":5.25,"dr":0.9,"decay":0.1,"lrt":1700000000,"review_step_secs":600,"rwkv_reset_after":1700000000123,"s_future":7.75}"#;
++
++    #[test]
++    fn cards_reach_other_clients_with_data_this_build_does_not_know() -> Result<()> {
++        // the card, made on a client
++        let mut client = Collection::new();
++        let note = crate::tests::NoteAdder::basic(&mut client).add(&mut client);
++        let mut ids = client.get_chunkable_ids(Usn(-1))?;
++        let mut chunk = client.get_chunk(&mut ids, Some(Usn(0)))?;
++        chunk.done = true;
++        // the note's note type is the client's own; the card is what matters
++        chunk.notes.clear();
++        let card: &mut CardEntry = &mut chunk.cards[0];
++        card.data = NEWER_CARD_DATA.into();
++        let card_id = card.id;
++
++        let (_folder, mut server) = server_collection();
++        let mut state = start(&mut server, true);
++        server_apply_chunk(ApplyChunkRequest { chunk }, &mut server, &mut state)?;
++        server_finish(&mut server)?;
++
++        let stored: String = server.storage.db.query_row(
++            "select data from cards where id = ?",
++            [card_id],
++            |row| row.get(0),
++        )?;
++        assert_eq!(stored, NEWER_CARD_DATA);
++        // the server's own reading of it has the fork's fields
++        let read = server.storage.get_card(card_id)?.unwrap();
++        assert_eq!(
++            read.memory_state,
++            Some(FsrsMemoryState {
++                stability: 12.5,
++                stability_internal: 30.25,
++                stability_fast: Some(4.5),
++                difficulty: 5.25,
++            })
++        );
++        assert_eq!(read.review_step_secs, Some(600));
++        assert_eq!(read.rwkv_history_reset_after, Some(1_700_000_000_123));
++
++        // another client gets the card as it was sent
++        let mut state = start(&mut server, false);
++        let chunk = server_chunk(&mut server, &mut state)?;
++        assert_eq!(chunk.cards.len(), 1);
++        assert_eq!(chunk.cards[0].id, card_id);
++        assert_eq!(chunk.cards[0].nid, note.id);
++        assert_eq!(chunk.cards[0].data, NEWER_CARD_DATA);
++        Ok(())
++    }
++
++    #[test]
++    fn older_card_versions_do_not_replace_the_server_copy() -> Result<()> {
++        let mut client = Collection::new();
++        crate::tests::NoteAdder::basic(&mut client).add(&mut client);
++        let mut ids = client.get_chunkable_ids(Usn(-1))?;
++        let mut chunk = client.get_chunk(&mut ids, Some(Usn(0)))?;
++        chunk.done = true;
++        // the note's note type is the client's own; the card is what matters
++        chunk.notes.clear();
++        let first = copy(&chunk.cards[0]);
++
++        let (_folder, mut server) = server_collection();
++        let mut state = start(&mut server, true);
++        server_apply_chunk(ApplyChunkRequest { chunk }, &mut server, &mut state)?;
++        server_finish(&mut server)?;
++
++        // a stale copy (older modification time) changed on the server since
++        let mut stale = copy(&first);
++        stale.mtime = TimestampSecs(first.mtime.0 - 100);
++        stale.data = r#"{"s":1.0,"d":1.0,"stale":true}"#.into();
++        let mut state = start(&mut server, true);
++        server
++            .storage
++            .db
++            .execute("update cards set usn = ?", [state.server_usn])?;
++        server_apply_chunk(
++            ApplyChunkRequest {
++                chunk: Chunk {
++                    done: true,
++                    cards: vec![stale],
++                    ..Default::default()
++                },
++            },
++            &mut server,
++            &mut state,
++        )?;
++        let stored: String = server.storage.db.query_row(
++            "select data from cards where id = ?",
++            [first.id],
++            |row| row.get(0),
++        )?;
++        assert_eq!(stored, first.data);
++        Ok(())
++    }
++
++    /// A preset as a newer desktop fork sends it: known fork options next to
++    /// ones this build lacks, in the fork's objects and at the top level.
++    fn newer_preset(server: &mut Collection, usn: Usn) -> Result<Value> {
++        let stored = server.get_deck_config(DeckConfigId(1), false)?.unwrap();
++        let mut preset = serde_json::to_value(DeckConfSchema11::from(stored.clone()))?;
++        preset["name"] = json!("From a newer fork");
++        preset["mod"] = json!(stored.mtime_secs.0 + 10);
++        preset["usn"] = json!(usn.0);
++        preset["jschoreels.fsrs"] = json!({
++            "fsrs_params_7": [0.25, 1.5, 3.0, 8.0, 6.5],
++            "fsrs_future_option": "kept",
++        });
++        preset["jschoreels.rwkv"] = json!({
++            "rwkv_review_new_cards_ignore_minimum_reviews": true,
++            "rwkv_future_option": 42,
++        });
++        preset["kioku_top_level_future_option"] = json!([1, 2]);
++        Ok(preset)
++    }
++
++    #[test]
++    fn presets_reach_other_clients_with_options_this_build_does_not_know() -> Result<()> {
++        let (_folder, mut server) = server_collection();
++        let mut state = start(&mut server, true);
++        let preset = newer_preset(&mut server, state.server_usn)?;
++        let mut changes = serde_json::to_value(no_changes())?;
++        changes["decks"][1] = json!([preset.clone()]);
++        let request = ApplyChangesRequest {
++            changes: serde_json::from_value(changes)?,
++        };
++        server_apply_changes(request, &mut server, &mut state)?;
++        server_finish(&mut server)?;
++
++        // the server read the options it knows
++        let stored = server.get_deck_config(DeckConfigId(1), false)?.unwrap();
++        assert_eq!(stored.name, "From a newer fork");
++        assert_eq!(stored.inner.fsrs_params_7, vec![0.25, 1.5, 3.0, 8.0, 6.5]);
++        assert!(stored.inner.rwkv_review_new_cards_ignore_minimum_reviews);
++
++        // another client gets them all
++        let mut state = start(&mut server, false);
++        let outgoing = server_apply_changes(
++            ApplyChangesRequest {
++                changes: no_changes(),
++            },
++            &mut server,
++            &mut state,
++        )?;
++        let mut outgoing = serde_json::to_value(outgoing)?;
++        let sent = presets(&mut outgoing).unwrap();
++        assert_eq!(sent.len(), 1);
++        let sent = &sent[0];
++        assert_eq!(sent["name"], json!("From a newer fork"));
++        assert_eq!(sent["jschoreels.fsrs"]["fsrs_future_option"], json!("kept"));
++        assert_eq!(
++            sent["jschoreels.fsrs"]["fsrs_params_7"],
++            json!([0.25, 1.5, 3.0, 8.0, 6.5])
++        );
++        assert_eq!(sent["jschoreels.rwkv"]["rwkv_future_option"], json!(42));
++        assert_eq!(
++            sent["jschoreels.rwkv"]["rwkv_review_new_cards_ignore_minimum_reviews"],
++            json!(true)
++        );
++        assert_eq!(sent["kioku_top_level_future_option"], json!([1, 2]));
++        // and reads it as the server did
++        let received = DeckConfig::from(serde_json::from_value::<DeckConfSchema11>(sent.clone())?);
++        assert_eq!(received.inner.fsrs_params_7, stored.inner.fsrs_params_7);
++        Ok(())
++    }
++
++    #[test]
++    fn presets_changed_since_are_sent_as_the_server_has_them() -> Result<()> {
++        let (folder, mut server) = server_collection();
++        let mut state = start(&mut server, true);
++        let preset = newer_preset(&mut server, state.server_usn)?;
++        let mut changes = serde_json::to_value(no_changes())?;
++        changes["decks"][1] = json!([preset]);
++        server_apply_changes(
++            ApplyChangesRequest {
++                changes: serde_json::from_value(changes)?,
++            },
++            &mut server,
++            &mut state,
++        )?;
++        server_finish(&mut server)?;
++        assert!(folder.path().join(PRESETS_FILE).exists());
++
++        // a version the kept copy isn't of, e.g. from a full upload
++        let mut config = server.get_deck_config(DeckConfigId(1), false)?.unwrap();
++        config.name = "Uploaded".into();
++        config.mtime_secs = config.mtime_secs.adding_secs(10);
++        server
++            .storage
++            .add_or_update_deck_config_with_existing_id(&config)?;
++
++        let mut state = start(&mut server, false);
++        let outgoing = server_apply_changes(
++            ApplyChangesRequest {
++                changes: no_changes(),
++            },
++            &mut server,
++            &mut state,
++        )?;
++        let mut outgoing = serde_json::to_value(outgoing)?;
++        let sent = &presets(&mut outgoing).unwrap()[0];
++        assert_eq!(sent["name"], json!("Uploaded"));
++        assert!(sent["jschoreels.rwkv"].get("rwkv_future_option").is_none());
++        Ok(())
++    }
++
++    #[test]
++    fn unreadable_kept_presets_are_ignored() -> Result<()> {
++        let (folder, mut server) = server_collection();
++        std::fs::write(folder.path().join(PRESETS_FILE), b"not json")?;
++        let mut state = start(&mut server, false);
++        let outgoing = server_apply_changes(
++            ApplyChangesRequest {
++                changes: no_changes(),
++            },
++            &mut server,
++            &mut state,
++        )?;
++        let mut outgoing = serde_json::to_value(outgoing)?;
++        assert_eq!(presets(&mut outgoing).unwrap()[0]["id"], json!(1));
++        Ok(())
++    }
++
++    /// Sets a card's FSRS-7 and RWKV state as the fork's scheduler does: the
++    /// RWKV history boundary is also mirrored in the collection's config.
++    fn set_card_state(
++        col: &mut Collection,
++        card_id: CardId,
++        memory_state: FsrsMemoryState,
++        rwkv_boundary: i64,
++    ) -> Result<Card> {
++        col.transact(Op::UpdateCard, |col| {
++            let original = col.storage.get_card(card_id)?.unwrap();
++            let mut card = original.clone();
++            card.memory_state = Some(memory_state);
++            card.desired_retention = Some(0.9);
++            card.last_review_time = Some(TimestampSecs(1_700_000_000));
++            card.review_step_secs = Some(600);
++            card.rwkv_history_reset_after = Some(rwkv_boundary);
++            col.mirror_rwkv_history_reset(&card)?;
++            col.update_card_inner(&mut card, original, col.usn()?)?;
++            Ok(card)
++        })
++        .map(|output| output.output)
++    }
++
++    /// Two clients of this build through the server, over HTTP, full and
++    /// normal syncs: the FSRS-7 and RWKV state of a card and the fork's
++    /// preset options arrive.
++    #[tokio::test]
++    async fn fork_metadata_syncs_between_clients() -> Result<()> {
++        with_active_server(|client| async move {
++            let ctx = SyncTestContext::new(client);
++            let mut desktop = ctx.col1();
++            let note = crate::tests::NoteAdder::basic(&mut desktop).add(&mut desktop);
++            let card_id = desktop.storage.all_cards_of_note(note.id)?[0].id;
++            let mut memory_state = FsrsMemoryState {
++                stability: 12.5,
++                stability_internal: 30.25,
++                stability_fast: Some(4.5),
++                difficulty: 5.25,
++            };
++            set_card_state(&mut desktop, card_id, memory_state, 1_700_000_000_123)?;
++            let mut preset = desktop.get_deck_config(DeckConfigId(1), false)?.unwrap();
++            preset.inner.fsrs_params_7 = vec![0.25, 1.5, 3.0, 8.0, 6.5];
++            preset.inner.rwkv_review_enabled = true;
++            preset.inner.rwkv_review_new_cards_ignore_minimum_reviews = true;
++            desktop.transact_no_undo(|col| col.add_or_update_deck_config(&mut preset))?;
++            let http = reqwest::Client::new();
++            desktop.full_upload(auth(&ctx.client), http.clone()).await?;
++
++            let phone = ctx.col2();
++            phone.full_download(auth(&ctx.client), http).await?;
++            let mut phone = ctx.col2();
++            let mut desktop = ctx.col1();
++            let received = phone.storage.get_card(card_id)?.unwrap();
++            assert_eq!(received.memory_state, Some(memory_state));
++            assert_eq!(received.rwkv_history_reset_after, Some(1_700_000_000_123));
++
++            // a change that only reaches the phone through normal syncs
++            memory_state.stability_fast = Some(5.5);
++            memory_state.stability = 13.5;
++            set_card_state(&mut desktop, card_id, memory_state, 1_700_000_000_999)?;
++            NormalSyncer::new(&mut desktop, ctx.client.clone())
++                .sync()
++                .await?;
++            NormalSyncer::new(&mut phone, ctx.client.clone())
++                .sync()
++                .await?;
++
++            let received = phone.storage.get_card(card_id)?.unwrap();
++            assert_eq!(received.memory_state, Some(memory_state));
++            assert_eq!(received.review_step_secs, Some(600));
++            assert_eq!(received.rwkv_history_reset_after, Some(1_700_000_000_999));
++            let received = phone.get_deck_config(DeckConfigId(1), false)?.unwrap();
++            assert_eq!(received.inner.fsrs_params_7, vec![0.25, 1.5, 3.0, 8.0, 6.5]);
++            assert!(received.inner.rwkv_review_enabled);
++            assert!(received.inner.rwkv_review_new_cards_ignore_minimum_reviews);
++            Ok(())
++        })
++        .await
 +    }
 +}
 diff --git a/rslib/src/sync/http_server/mod.rs b/rslib/src/sync/http_server/mod.rs

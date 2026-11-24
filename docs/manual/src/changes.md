@@ -11,6 +11,11 @@ All releases: [GitHub Releases](https://github.com/krmanik/kioku/releases).
   statistics. Its Python packages and Rust core are built from the same
   commit of the fork. The Termux variant and the Docker image still run
   Anki 26.09.4.
+- Sync server on the phone: FSRS-7 memory states, RWKV history
+  boundaries and the fork's preset options sync through it. The server
+  passes card data and presets on as devices sent them, so a computer
+  with a newer version of the fork loses nothing when it syncs through
+  an older phone.
 - Web: menus and the reviewer's buttons (Edit, More) work again. Each
   showed an error (`'WebView' has no attribute 'set_touchable'`). A tap
   on a page now closes an open menu, as in the apps.

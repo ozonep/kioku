@@ -236,6 +236,68 @@ def test_two_clients_round_trip(platform, tmp_path) -> None:
         b.close()
 
 
+def test_fsrs7_and_rwkv_state_round_trip(platform, tmp_path) -> None:
+    """The Anki fork's scheduling state reaches the other client through the
+    phone, by full and by normal syncs: FSRS-7's memory state, the delay of a
+    learning step scheduled as a review and RWKV's history boundary (all in
+    the card's data), and the fork's preset options (in the preset's
+    jschoreels.fsrs and jschoreels.rwkv objects). The server also keeps what
+    a newer fork than its own adds there (rslib's kioku/lossless.rs tests)."""
+    from anki.cards import FSRSMemoryState
+
+    s = settings()
+    st = syncserver.start(s)
+    a = new_col(tmp_path / "a" / "collection.anki2")
+    b = new_col(tmp_path / "b" / "collection.anki2")
+    try:
+        cid = a.card_ids_of_note(add_note(a, "fsrs7"))[0]
+        card = a.get_card(cid)
+        card.memory_state = FSRSMemoryState(
+            stability=12.5, difficulty=5.25, stability_internal=30.25, stability_fast=4.5
+        )
+        card.review_step_secs = 600
+        card.rwkv_history_reset_after = 1_700_000_000_123
+        a.update_card(card)
+        params = [0.25, 1.5, 3.0, 8.0, 6.5]
+        conf = a.decks.get_config(1)
+        conf["jschoreels.fsrs"] = {"fsrs_params_7": params}
+        conf["jschoreels.rwkv"] = {"rwkv_review_new_cards_ignore_minimum_reviews": True}
+        a.decks.update_config(conf)
+        auth_a = login(a, s, url(st))
+        auth_b = login(b, s, url(st))
+
+        assert sync(a, auth_a, upload=True) in (Required.FULL_SYNC, Required.FULL_UPLOAD)
+        assert sync(b, auth_b, upload=False) in (Required.FULL_SYNC, Required.FULL_DOWNLOAD)
+        got = b.get_card(cid)
+        assert got.memory_state == card.memory_state
+        assert got.review_step_secs == 600
+        assert got.rwkv_history_reset_after == 1_700_000_000_123
+        conf = b.decks.get_config(1)
+        assert conf["jschoreels.fsrs"]["fsrs_params_7"] == params
+        assert conf["jschoreels.rwkv"]["rwkv_review_new_cards_ignore_minimum_reviews"] is True
+
+        # changed on a, as normal syncs
+        card = a.get_card(cid)
+        card.memory_state = FSRSMemoryState(
+            stability=13.5, difficulty=5.5, stability_internal=31.0, stability_fast=5.5
+        )
+        card.review_step_secs = 1200
+        a.update_card(card)
+        params = [0.5, 1.25, 2.5, 9.0, 7.5]
+        conf = a.decks.get_config(1)
+        conf["jschoreels.fsrs"]["fsrs_params_7"] = params
+        a.decks.update_config(conf)
+        assert sync(a, auth_a) in NORMAL
+        assert sync(b, auth_b) in NORMAL
+        got = b.get_card(cid)
+        assert got.memory_state == card.memory_state
+        assert got.review_step_secs == 1200
+        assert b.decks.get_config(1)["jschoreels.fsrs"]["fsrs_params_7"] == params
+    finally:
+        a.close()
+        b.close()
+
+
 def test_wrong_password_is_refused(platform, tmp_path) -> None:
     s = settings()
     st = syncserver.start(s)
