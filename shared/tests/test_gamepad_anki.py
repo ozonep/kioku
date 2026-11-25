@@ -157,9 +157,12 @@ def test_deck_list_markup() -> None:
     child = DeckTreeNode(deck_id=2, name="Child", level=2)
     parent = DeckTreeNode(deck_id=1, name="Parent", level=1, children=[child])
     folded = DeckTreeNode(deck_id=3, name="Folded", level=1, collapsed=True, children=[child])
-    browser = Named()
+    # the Anki fork's deck list also shows RWKV-Instant counts and allowances
+    browser = Named(_rwkv_unavailable_deck_ids=set(), _rwkv_pending_deck_ids=set())
     browser._render_deck_node = lambda n, c: aqt.deckbrowser.DeckBrowser._render_deck_node(browser, n, c)
-    ctx = aqt.deckbrowser.RenderDeckNodeContext(current_deck_id=1)
+    ctx = aqt.deckbrowser.RenderDeckNodeContext(
+        current_deck_id=1, review_limit_labels={deck_id: ("", "") for deck_id in (1, 2, 3)}
+    )
     html = "".join(aqt.deckbrowser.DeckBrowser._render_deck_node(browser, n, ctx) for n in (parent, folded))
     rows = Rows()
     rows.feed(html)

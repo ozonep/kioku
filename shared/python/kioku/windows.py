@@ -520,6 +520,10 @@ class WindowManager(QObject):
             border = self._border(obj)
             if border is not None:
                 border.place()
+                # a small dialog's card that something resized, once that
+                # change is done (message boxes size themselves)
+                if self._bar(obj) is None and not isinstance(obj, QMessageBox):
+                    QTimer.singleShot(0, lambda w=obj: self._refit_card(w))
         elif kind == QEvent.Type.WindowTitleChange:
             bar = self._bar(obj)
             if bar is not None:
@@ -573,6 +577,22 @@ class WindowManager(QObject):
         w.setMinimumSize(0, 0)
         _fill(w, avail)
         self._layout(w)
+
+    def _refit_card(self, w: QWidget) -> None:
+        """Fit and center a card again after something resized it, as _adopt
+        placed it. The Anki fork's progress window grows during Optimize All
+        Presets (a status line that doesn't wrap, a bar for each preset
+        being optimized, a log with an 80-character minimum width): on an
+        iPhone Air (420 points wide) it became 641 wide and took Cancel off
+        the screen. When a preset is done, it shrinks to its contents
+        (adjustSize), which left it narrow at the left edge. A card already
+        in place keeps its geometry, so this doesn't repeat."""
+        if sip.isdeleted(w) or not w.isVisible():
+            return
+        avail = _available()
+        _fit_children(w, avail)
+        w.setMinimumSize(0, 0)
+        _center(w, _card_size(w, avail), avail)
 
     def _layout(self, w: QWidget) -> None:
         """Margins = safe area + the window's own + the title bar. Qt merges

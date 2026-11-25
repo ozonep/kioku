@@ -3,13 +3,20 @@
 # already there) and set up the host Python venv with sip.
 #   deps/qt/<ver>/{ios,macos}   Qt for iOS and the macOS host tools it needs
 #   deps/python-ios             BeeWare's Python.xcframework
-#   deps/anki                   Anki source (for the Rust core, rsbridge)
+#   deps/anki                   the Anki fork's source (Rust core, rsbridge, wheels)
 #   deps/sdist/*                PyQt6, PyQt6-sip, orjson, rpds-py, markupsafe
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 source "$ROOT/../shared/versions.env"
 DEPS=$ROOT/deps
 mkdir -p "$DEPS/sdist"
+
+# the Anki fork (shared/anki-fork.env) with shared/patches/ applied; Kioku
+# runs its sync server on a thread it can stop and start again (Preferences >
+# Advanced). Before the cd: KIOKU_ANKI_REPO may be relative to the current
+# directory.
+"$ROOT/../shared/tools/anki_source.sh" --fork "$DEPS/anki"
+
 cd "$DEPS"
 
 venv_python=$("$ROOT/.venv/bin/python" -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null || true)
@@ -18,6 +25,14 @@ if [ ! -x "$ROOT/.venv/bin/sip-build" ] || [ "$venv_python" != "$PYTHON_VERSION"
     uv pip install -q -p "$ROOT/.venv/bin/python" pip \
         "sip==$SIP_VERSION" "pyqt-builder==$PYQT_BUILDER_VERSION"
 fi
+
+# Python, Qt, PyQt6 and the packages (shared/versions.env, requirements.txt)
+# must be the ones the fork pins. The Anki update workflow moves them with
+# Anki's releases, not with the fork.
+"$ROOT/.venv/bin/python" -I "$ROOT/../shared/tools/anki_pins.py" check "$DEPS/anki" || {
+    echo "The Anki fork (shared/anki-fork.env) pins other versions: move the fork or the pins (shared/tools/anki_pins.py update)" >&2
+    exit 1
+}
 
 QT=$DEPS/qt/$QT_VERSION
 if [ ! -d "$QT/ios/lib/QtSvg.framework" ]; then
@@ -43,10 +58,6 @@ if [ ! -d python-ios/Python.xcframework ] || ! python_ios; then
     mkdir -p python-ios && tar xzf python-ios.tar.gz -C python-ios && rm python-ios.tar.gz
     python_ios || { echo "BeeWare $tag is not Python $PYTHON_FULL_VERSION (shared/versions.env):" >&2; head -1 python-ios/VERSIONS >&2; exit 1; }
 fi
-
-# Anki at ANKI_TAG with shared/patches/ applied; Kioku runs its sync server
-# on a thread it can stop and start again (Preferences > Advanced)
-"$ROOT/../shared/tools/anki_source.sh" "$DEPS/anki"
 
 sdist() {  # sdist <pypi name> <version> <unpacked dir>
     [ -d "sdist/$3" ] && return

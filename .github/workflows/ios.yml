@@ -53,6 +53,10 @@ jobs:
 
       - uses: astral-sh/setup-uv@v6
 
+      - name: Script tests
+        working-directory: .
+        run: uvx pytest -q -p no:cacheprovider shared/tests/test_anki_source.py shared/tests/test_prepare_site.py
+
       - name: Tools
         run: |
           brew install protobuf swig ninja pkgconf
@@ -78,14 +82,22 @@ jobs:
             build/wheels/ios
           key: ios-programs-${{ hashFiles('shared/versions.env', 'shared/programs/*', 'shared/tools/build_programs.sh', 'shared/tools/build_wheels.sh') }}
 
+      # Anki's Rust core for the app, and the Anki fork's aqt and anki wheels
+      # (shared/tools/anki_wheels.sh builds them again when the fork's commit
+      # or Kioku's patches changed). Only these depend on the fork's commit
+      # (shared/anki-fork.env). After the fork moves, the previous commit's
+      # builds are restored: cargo and anki_wheels.sh rebuild what changed.
       - name: Cache Rust builds
         uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
             ios/deps/anki/target
-          key: ios-rust-${{ hashFiles('shared/versions.env') }}-${{ github.run_id }}
-          restore-keys: ios-rust-${{ hashFiles('shared/versions.env') }}-
+            ios/deps/anki/out/wheels
+          key: ios-rust-${{ hashFiles('shared/versions.env') }}-${{ hashFiles('shared/anki-fork.env') }}-${{ github.run_id }}
+          restore-keys: |
+            ios-rust-${{ hashFiles('shared/versions.env') }}-${{ hashFiles('shared/anki-fork.env') }}-
+            ios-rust-${{ hashFiles('shared/versions.env') }}-
 
       - name: Version
         id: version

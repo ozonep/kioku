@@ -20,7 +20,7 @@ QT=$ROOT/deps/qt/$QT_VERSION
 "$ROOT/tools/build_qt_plugin.sh"
 "$ROOT/tools/build_rust.sh" aarch64-apple-ios
 "$ROOT/tools/gen_pyqt.sh" > /dev/null
-"$ROOT/../shared/tools/prepare_site.sh" "$ROOT/.venv/bin/python" "$ROOT/deps/sdist" "$ROOT/build/site"
+"$ROOT/../shared/tools/prepare_site.sh" "$ROOT/.venv/bin/python" "$ROOT/deps/sdist" "$ROOT/build/site" "$ROOT/deps/anki"
 "$ROOT/../shared/tools/build_pymupdf.sh" ios > "$ROOT/build/pymupdf.log" 2>&1 || {
     tail -30 "$ROOT/build/pymupdf.log"; exit 1; }
 rsync -a "$ROOT/../build/pymupdf/ios/site/" "$ROOT/build/site/"

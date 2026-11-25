@@ -40,11 +40,12 @@ shared/tools/test_all.sh android ios-sim  # only these
 KIOKU_BUILD=1 shared/tools/test_all.sh    # build and install first
 ```
 
-- `host`: `shared/tests/run.sh`, Kioku's Python code against desktop Anki
-  of `ANKI_TAG` with a patched rsbridge. It also runs the installed Anki's
-  request interceptor against the Qt WebEngine stand-in and checks that every
-  `QWebEngine*` name aqt uses exists there, so an Anki update that needs more
-  of Qt WebEngine fails here before it reaches a phone.
+- `host`: `shared/tests/run.sh`, Kioku's Python code against the Anki fork
+  that the iPhone and iPad run (`shared/anki-fork.env`: its wheels, built in
+  `build/host-tests/anki` with Kioku's patched rsbridge). It also runs the installed
+  Anki's request interceptor against the Qt WebEngine stand-in and checks
+  that every `QWebEngine*` name aqt uses exists there, so an Anki update that
+  needs more of Qt WebEngine fails here before it reaches a phone.
 - `android` (the emulator or phone adb sees, `ANDROID_SERIAL`), `ios-sim`
   (a booted simulator with Kioku, `KIOKU_SIM`), `ios` (a connected iPhone,
   `KIOKU_DEVICE`): `shared/tools/apptest.py` relaunches the development
@@ -57,7 +58,7 @@ removes it at the end:
 
 | Test | What it does |
 | --- | --- |
-| version, profile | Anki is `ANKI_TAG`; a profile and collection are open |
+| version, profile | Anki is at `ANKI_FORK_COMMIT` (iPhone, iPad; `--anki-commit` overrides) or `ANKI_TAG` (Android); a profile and collection are open |
 | add | adds Basic and Cloze notes, one with a picture |
 | add-window | Add window: the note's text reaches the editor page, Add saves it to the deck, the editor clears; `activeWindow()` is Add |
 | editor-formatting | Add window: on a selection in a field, bold, italic, underline, superscript, subscript (on and off again), text colour, highlight, remove formatting, MathJax inline, cloze (Cloze note); underline at the caret, then a typed letter is underlined |
@@ -71,6 +72,7 @@ removes it at the end:
 | gamepad-native | Android: real `KeyEvent`s (source gamepad: A, Start, d-pad) and a joystick `MotionEvent` (stick, right stick, hat, trigger) through `KiokuActivity` reach Python; a keyboard's arrow is not taken. iOS: Apple's `GCVirtualController` connects and disconnects as a controller Kioku watches; A pressed through Kioku's handler (iOS 17+; older: a snapshot's A) |
 | media-server | the media server hands out the picture |
 | statistics, deck-options | the pages load through the API (graphs drawn, inputs present) |
+| rwkv | iOS: loads the bundled default RWKV model(s) through Anki's Rust runtime and checks a prediction for a test card |
 | export-apkg, export-csv, export-window | packages and notes exported; the Export window opens |
 | import-apkg, import-csv, import-window | the test notes removed and imported back with the picture; CSV import; the import screen loads |
 | check-database, check-media | both pass, the picture isn't missing |
