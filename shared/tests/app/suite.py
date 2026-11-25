@@ -194,15 +194,11 @@ def t_version():
     )
     if EXPECTED_VERSION:
         check(aqt.appVersion == EXPECTED_VERSION, f"{info}; expected Anki {EXPECTED_VERSION}")
-    expected_hash = globals().get("EXPECTED_BUILDHASH", "").strip().lower()
+    expected_hash = globals().get("EXPECTED_BUILDHASH", "").lower()
     if expected_hash:
-        actual_hash = buildhash.strip().lower()
-        hash_ok = bool(actual_hash) and (
-            actual_hash.startswith(expected_hash)
-            if len(actual_hash) >= len(expected_hash)
-            else len(actual_hash) >= 8 and expected_hash.startswith(actual_hash)
-        )
-        check(hash_ok, f"{info}; expected Anki build hash {expected_hash}")
+        n = min(len(buildhash), len(expected_hash))
+        ok = n >= 7 and buildhash.lower()[:n] == expected_hash[:n]
+        check(ok, f"{info}; expected Anki build hash {expected_hash}")
     # add-ons expect desktop Anki's Python and Qt (AnkiHub failed on 3.14)
     runtime = {
         "PYTHON_FULL_VERSION": pyplatform.python_version(),
@@ -1266,6 +1262,91 @@ def t_deck_options():
     return f"{inputs} inputs, page/window width {width}"
 
 
+def t_rwkv():
+    """Load the bundled default RWKV model(s) through Anki's Rust runtime and
+    check a prediction for a test card, without changing the profile."""
+    if sys.platform != "ios":
+        raise Skip(sys.platform)
+    import math
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    from aqt import rwkv_model, rwkv_precision, rwkv_scheduler
+    from aqt.rwkv_srs_benchmark import EmbeddedRwkvReviewerBackend
+
+    check(
+        rwkv_scheduler.embedded_rwkv_model_path() is not None,
+        "embedded_rwkv_model_path() returned None (bundled model missing)",
+    )
+    models = rwkv_model.runtime_models(
+        rwkv_model.model_for_profile(None),
+        instant_used=True,
+        curve_used=True,
+        single_model=False,
+    )
+    rwkv_dir = Path(rwkv_scheduler.__file__).parent / "rwkv_inference"
+    model_path = rwkv_dir / rwkv_model.RWKV_MODEL_FILES[models.model]
+    check(model_path.is_file(), f"bundled RWKV model missing: {model_path}")
+    instant_path = (
+        rwkv_dir / rwkv_model.RWKV_MODEL_FILES[models.instant_model]
+        if models.instant_model is not None
+        else None
+    )
+    if instant_path is not None:
+        check(instant_path.is_file(), f"bundled RWKV instant model missing: {instant_path}")
+
+    card = col().get_card(col().get_note(test_note_ids()[0]).card_ids()[0])
+    reviewer = SimpleNamespace(mw=mw)
+    identity = rwkv_scheduler.rwkv_review_identity(reviewer, card)
+    check(identity is not None, "no RWKV review identity for test card")
+    review_input = rwkv_scheduler.rwkv_review_input(
+        reviewer=reviewer, card=card, identity=identity, ease=None
+    )
+    request = rwkv_scheduler.RwkvReviewPredictionRequest(review_input=review_input)
+    precision = rwkv_precision.state_precision_for_profile(None)
+
+    def run():
+        kw = dict(model_path=model_path, state_precision=precision, model=models.model)
+        if instant_path is not None:
+            kw.update(instant_model_path=instant_path, instant_model=models.instant_model)
+        backend = EmbeddedRwkvReviewerBackend(**kw)
+        return backend.predict_review_requests([request])[0]
+
+    box = in_thread(run)
+    yield Until(lambda: box, 30, "RWKV inference")
+    if "error" in box:
+        raise box["error"]
+    pred = box["value"]
+    check(pred is not None, "RWKV returned no prediction")
+    check(
+        pred.retrievability is not None
+        and math.isfinite(pred.retrievability)
+        and 0.0 <= pred.retrievability <= 1.0,
+        f"invalid RWKV retrievability: {pred.retrievability}",
+    )
+    check(
+        pred.curve_retrievability is not None
+        and math.isfinite(pred.curve_retrievability)
+        and 0.0 <= pred.curve_retrievability <= 1.0,
+        f"invalid RWKV curve retrievability: {pred.curve_retrievability}",
+    )
+    intervals = pred.interval_overrides
+    check(
+        intervals.good is not None and math.isfinite(intervals.good) and intervals.good > 0,
+        f"invalid RWKV interval overrides: {intervals}",
+    )
+    probs = pred.button_probabilities
+    check(
+        probs is not None
+        and len(probs) == 4
+        and all(math.isfinite(p) and 0.0 <= p <= 1.0 for p in probs)
+        and math.isclose(sum(probs), 1.0, abs_tol=0.01),
+        f"invalid RWKV button probabilities: {probs}",
+    )
+    loaded = f"{models.model}+{models.instant_model}" if models.instant_model else models.model
+    return f"{loaded}: R={pred.retrievability:.3f}, good={intervals.good:.2f}d"
+
+
 def t_export_apkg():
     from anki.collection import DeckIdLimit, ExportAnkiPackageOptions
 
@@ -1618,6 +1699,7 @@ TESTS = [
     ("media-server", t_review_picture),
     ("statistics", t_stats),
     ("deck-options", t_deck_options),
+    ("rwkv", t_rwkv),
     ("export-apkg", t_export_apkg),
     ("export-csv", t_export_csv),
     ("export-window", t_export_window),

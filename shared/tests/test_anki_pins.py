@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.join(ROOT, "shared", "tools"))
 
 import anki_pins  # noqa: E402
 
-ANKI = os.path.join(ROOT, "ios", "deps", "anki")  # shared/tests/run.sh
+ANKI = os.path.join(ROOT, "build", "host-tests", "anki")  # shared/tests/run.sh
 
 
 def _read(path: str) -> str:

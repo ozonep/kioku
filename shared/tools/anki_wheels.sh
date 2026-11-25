@@ -29,5 +29,7 @@ cd "$DIR"
 echo "Building Anki's wheels at $(git rev-parse HEAD) (a few minutes the first time)"
 rm -rf "$WHEELS"
 RELEASE=1 ./ninja wheels
-have anki && have aqt
+for pkg in anki aqt; do
+    have "$pkg" || { echo "Expected $pkg wheel in $WHEELS" >&2; exit 1; }
+done
 echo "$SOURCE" > "$WHEELS/kioku-source"

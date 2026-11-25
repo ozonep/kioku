@@ -42,7 +42,7 @@ KIOKU_BUILD=1 shared/tools/test_all.sh    # build and install first
 
 - `host`: `shared/tests/run.sh`, Kioku's Python code against the Anki fork
   that the iPhone and iPad run (`shared/anki-fork.env`: its wheels, built in
-  `ios/deps/anki` with Kioku's patched rsbridge). It also runs the installed
+  `build/host-tests/anki` with Kioku's patched rsbridge). It also runs the installed
   Anki's request interceptor against the Qt WebEngine stand-in and checks
   that every `QWebEngine*` name aqt uses exists there, so an Anki update that
   needs more of Qt WebEngine fails here before it reaches a phone.
@@ -72,6 +72,7 @@ removes it at the end:
 | gamepad-native | Android: real `KeyEvent`s (source gamepad: A, Start, d-pad) and a joystick `MotionEvent` (stick, right stick, hat, trigger) through `KiokuActivity` reach Python; a keyboard's arrow is not taken. iOS: Apple's `GCVirtualController` connects and disconnects as a controller Kioku watches; A pressed through Kioku's handler (iOS 17+; older: a snapshot's A) |
 | media-server | the media server hands out the picture |
 | statistics, deck-options | the pages load through the API (graphs drawn, inputs present) |
+| rwkv | iOS: loads the bundled default RWKV model(s) through Anki's Rust runtime and checks a prediction for a test card |
 | export-apkg, export-csv, export-window | packages and notes exported; the Export window opens |
 | import-apkg, import-csv, import-window | the test notes removed and imported back with the picture; CSV import; the import screen loads |
 | check-database, check-media | both pass, the picture isn't missing |

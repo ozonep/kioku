@@ -43,14 +43,24 @@ find "$SITE" -name '*.so' -delete
 # the build's copies of the same files, and the PyTorch checkpoint and the
 # int8 files are for the fork's benchmarks (PyTorch isn't in the apps):
 # 84 of aqt's 132 MB. The weights' notice (not under Anki's license) goes
-# beside every model that ships, as Anki's build puts it.
+# beside every model that ships, as Anki's build puts it (when the checkout
+# has it).
 rm -rf "$SITE/_aqt/rwkv_inference"
 RWKV=$SITE/aqt/rwkv_inference
 if [ -d "$RWKV" ]; then
     find "$RWKV" \( -name '*.pth' -o -name '*.int8.bin' \) -delete
-    for model in "$RWKV"/*/; do
-        cp "$RWKV/WEIGHTS-NOTICE.md" "$model"
-    done
+    if [ -f "$RWKV/WEIGHTS-NOTICE.md" ]; then
+        for model in "$RWKV"/*/; do
+            [ -d "$model" ] || continue
+            [ "$(basename "$model")" = __pycache__ ] && continue
+            cp "$RWKV/WEIGHTS-NOTICE.md" "$model"
+        done
+    fi
+    "$PYTHON" -I -c 'import pathlib, runpy, sys
+aqt = pathlib.Path(sys.argv[1])
+gone = [str(f) for f in runpy.run_path(str(aqt / "rwkv_model.py"))["RWKV_MODEL_FILES"].values()
+        if not (aqt / "rwkv_inference" / f).is_file()]
+sys.exit(f"the bundle lost RWKV models the app loads: {gone}" if gone else 0)' "$SITE/aqt"
 fi
 
 cp -R "$SDIST/markupsafe-$MARKUPSAFE_VERSION/src/markupsafe" "$SITE/"
