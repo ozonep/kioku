@@ -4,7 +4,8 @@
 # (RELEASE=1 ./ninja wheels: minified web pages, as Anki's releases), into
 # <anki dir>/out/wheels. PyPI only has upstream Anki's wheels, and the fork's
 # Python code has to come from the same commit as its Rust core: they check
-# each other's build hash.
+# each other's build hash (out/buildhash: the release build writes the
+# commit's, as ios/tools/build_rust.sh does).
 #
 # Does nothing when the wheels there were built from the same commit and
 # Kioku patches (out/wheels/kioku-source), e.g. restored by CI's cache.
@@ -25,12 +26,6 @@ if [ "$(cat "$WHEELS/kioku-source" 2> /dev/null)" = "$SOURCE" ] && have anki && 
 fi
 
 cd "$DIR"
-# the build hash the Rust core gets too (ios/tools/build_rust.sh,
-# android/tools/build_rust.sh); a release build writes the same one again
-mkdir -p out
-HASH=$(git rev-parse --short=8 HEAD)
-[ "$(cat out/buildhash 2> /dev/null)" = "$HASH" ] || printf %s "$HASH" > out/buildhash
-
 echo "Building Anki's wheels at $(git rev-parse HEAD) (a few minutes the first time)"
 rm -rf "$WHEELS"
 RELEASE=1 ./ninja wheels

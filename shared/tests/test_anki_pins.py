@@ -7,7 +7,10 @@ of type Optional[List[str]] in NoteInfo is not serializable")."""
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
+
+import pytest
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
 sys.path.insert(0, os.path.join(ROOT, "shared", "tools"))
@@ -27,6 +30,16 @@ def test_versions_match_anki() -> None:
         anki_pins.Anki(ANKI), _read("shared/versions.env"), _read("shared/requirements.txt")
     )
     assert problems == [], "run shared/tools/anki_pins.py update (see shared/requirements.in):\n" + "\n".join(problems)
+
+
+def test_fork_version_is_its_dot_version() -> None:
+    # the version shared/tools/apptest.py expects the iPhone and iPad to report
+    fork = anki_pins.read_versions_env(_read("shared/anki-fork.env"))
+    head = subprocess.run(["git", "-C", ANKI, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+    if head != fork["ANKI_FORK_COMMIT"]:
+        pytest.skip(f"{ANKI} has another commit of the fork (KIOKU_ANKI_COMMIT)")
+    version = anki_pins.Anki(ANKI).read(".version").strip()
+    assert fork["ANKI_FORK_VERSION"] == version, f"set ANKI_FORK_VERSION={version} in shared/anki-fork.env"
 
 
 def test_tests_run_on_anki_python() -> None:

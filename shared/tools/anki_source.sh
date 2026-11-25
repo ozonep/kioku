@@ -23,6 +23,9 @@ if [ "${1:-}" = --fork ]; then
     shift
 fi
 DIR=$1
+# without trailing slashes (tab completion adds one): $DIR.new goes beside
+# $DIR, not into it
+while [[ $DIR == */ && $DIR != / ]]; do DIR=${DIR%/}; done
 
 # replace <command...>: the command checks Anki out into $DIR.new, which
 # replaces $DIR but keeps its builds: Rust's target/ and Anki's out/
