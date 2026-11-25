@@ -31,6 +31,8 @@ All releases: [GitHub Releases](https://github.com/krmanik/kioku/releases).
   clear of the status bar, the Dynamic Island and the home indicator, in
   landscape too. A message too long for the screen scrolls above its
   buttons, which used to end up below the screen.
+- iPhone: a tooltip ("Card buried", undo) no longer covers the answer
+  buttons. Before, a tap on them only closed the tooltip.
 
 ## 0.2.11
 
