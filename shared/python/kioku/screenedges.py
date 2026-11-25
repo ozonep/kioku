@@ -125,6 +125,7 @@ class ScreenEdges(QObject):
                 self.corners[corner] = spacer
         self.watching = False
         self._pending = False
+        self._bottom_width: int | None = None
         mw.installEventFilter(self)
         mw.bottomWeb.installEventFilter(self)
         self.update()
@@ -157,7 +158,11 @@ class ScreenEdges(QObject):
         sides = {"left": safe.left(), "right": safe.right(), "bottom": safe.bottom()}
         self.top.set(sides)
         self.main.set(sides)
-        if self.bottom.set(sides if covered else {**sides, "bottom": 0}) and covered:
+        insets_changed = self.bottom.set(sides if covered else {**sides, "bottom": 0})
+        width = bar.width()
+        resized = self._bottom_width is not None and width != self._bottom_width
+        self._bottom_width = width
+        if covered and (insets_changed or resized):
             bar.adjustHeightToFit()
 
     def _pad_menu_bar(self, left: int, right: int) -> None:

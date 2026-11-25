@@ -12,8 +12,16 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 from PyQt6 import sip
-from PyQt6.QtCore import QMargins, QPoint, QRect
-from PyQt6.QtWidgets import QApplication, QMessageBox, QScrollArea
+from PyQt6.QtCore import QMargins, QObject, QPoint, QRect, pyqtSignal
+from PyQt6.QtWidgets import (
+    QApplication,
+    QDialog,
+    QDialogButtonBox,
+    QMessageBox,
+    QScrollArea,
+    QVBoxLayout,
+    QWidget,
+)
 
 from kioku import windows
 
@@ -93,6 +101,7 @@ def test_a_long_message_scrolls_above_its_buttons(screen, geometry) -> None:  # 
     box = _show(LONG)
     try:
         _inside(box, safe)
+        assert box.height() == safe.height() - 2 * windows.CARD_MARGIN
         scroll = _scroll(box)
         assert scroll is not None
         assert scroll.widget() is box.findChild(type(scroll.widget()), "qt_msgbox_label")
@@ -115,8 +124,148 @@ def test_a_long_message_fits_again_after_turning_the_phone(screen) -> None:  # t
             manager._refit_all()
             _settle()
             _inside(box, safe)
+            assert box.height() == safe.height() - 2 * windows.CARD_MARGIN
             assert len(box.findChildren(QScrollArea, windows.MESSAGE_SCROLL)) == 1
         assert box.width() == portrait_width
     finally:
         box.close()
         _settle()
+
+
+def test_a_medium_message_unscrolls_when_turning_to_portrait(screen) -> None:  # type: ignore[no-untyped-def]
+    """Text that only overflows landscape scrolls there and becomes a plain
+    card again in portrait."""
+    use, manager = screen
+    medium = "\n".join(f"Line {i}: medium message" for i in range(25))
+    safe = use(LANDSCAPE)
+    box = _show(medium)
+    try:
+        _inside(box, safe)
+        assert _scroll(box) is not None
+        safe = use(PORTRAIT)
+        manager._refit_all()
+        _settle()
+        _inside(box, safe)
+        assert _scroll(box) is None
+    finally:
+        box.close()
+        _settle()
+
+
+def test_a_wide_informative_message_stays_inside_the_safe_area(screen) -> None:  # type: ignore[no-untyped-def]
+    """QMessageBox wraps against the whole screen width, not the safe area:
+    wide informative text must still stay inside the side insets."""
+    use, _manager = screen
+    safe = use(LANDSCAPE)
+    box = QMessageBox(
+        QMessageBox.Icon.Warning,
+        "Kioku",
+        "Short title",
+        QMessageBox.StandardButton.Ok,
+    )
+    box.setInformativeText("A" * 120)
+    box.show()
+    _settle()
+    try:
+        _inside(box, safe)
+    finally:
+        box.close()
+        _settle()
+
+
+def test_small_dialog_is_judged_against_the_safe_area(screen) -> None:  # type: ignore[no-untyped-def]
+    """A dialog taller than 70% of the safe area height (260 pt in landscape)
+    but under 70% of the whole screen (294 pt) gets a full-screen window,
+    not a card that could clip its buttons."""
+    use, _manager = screen
+    use(LANDSCAPE)
+    dialog = QDialog()
+    layout = QVBoxLayout(dialog)
+    body = QWidget(dialog)
+    body.setMinimumHeight(230)
+    layout.addWidget(body)
+    layout.addWidget(QDialogButtonBox(QDialogButtonBox.StandardButton.Ok, dialog))
+    dialog.show()
+    _settle()
+    try:
+        assert windows.WindowManager._bar(dialog) is not None
+    finally:
+        dialog.close()
+        _settle()
+
+
+class _FakeHandle(QObject):
+    safeAreaMarginsChanged = pyqtSignal(QMargins)
+
+    def __init__(self, margins: QMargins) -> None:
+        super().__init__()
+        self._margins = QMargins(margins)
+
+    def safeAreaMargins(self) -> QMargins:
+        return QMargins(self._margins)
+
+    def set_margins(self, margins: QMargins) -> None:
+        self._margins = QMargins(margins)
+        self.safeAreaMarginsChanged.emit(QMargins(margins))
+
+
+class _FakeMainWindow(QWidget):
+    def __init__(self, handle: _FakeHandle) -> None:
+        super().__init__()
+        self._handle = handle
+
+    def windowHandle(self):  # type: ignore[override]
+        return self._handle
+
+
+def test_safe_area_change_refits_open_cards_and_falls_back_when_mw_hidden(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """safeAreaMarginsChanged arrives separately from availableGeometryChanged:
+    open cards refit when the margins update. While the main window is hidden
+    (Switch Profile, first run), _screen_insets reads from a visible managed
+    full-screen window instead of returning zero."""
+    import aqt
+
+    screen_rect = [QRect(PORTRAIT[0])]
+    monkeypatch.setattr(windows, "_screen_available", lambda: QRect(screen_rect[0]))
+    monkeypatch.setattr(windows, "_rest", None)
+
+    handle = _FakeHandle(PORTRAIT[1])
+    mw = _FakeMainWindow(handle)
+    mw.show()
+    _settle()
+    monkeypatch.setattr(aqt, "mw", mw, raising=False)
+
+    manager = windows.WindowManager(app)
+    box = _show(SHORT)
+    managed: _FakeMainWindow | None = None
+    try:
+        # Screen switched to landscape before safeAreaMargins updated (stale portrait insets)
+        screen_rect[0] = QRect(LANDSCAPE[0])
+        manager._refit_all()
+        _settle()
+        landscape_safe = LANDSCAPE[0].marginsRemoved(LANDSCAPE[1])
+        assert not landscape_safe.contains(box.geometry())
+
+        # Margins arrive next: WindowManager refits the open card into the real safe area
+        handle.set_margins(LANDSCAPE[1])
+        _settle()
+        _inside(box, landscape_safe)
+
+        # Hide main window (as Switch Profile does): fall back to a full-screen managed window
+        mw.hide()
+        assert windows._screen_insets() == QMargins()
+        managed = _FakeMainWindow(_FakeHandle(LANDSCAPE[1]))
+        windows.TitleBar(managed)
+        managed.show()
+        _settle()
+        assert windows._screen_insets() == LANDSCAPE[1]
+    finally:
+        box.close()
+        if managed is not None:
+            managed.close()
+        mw.close()
+        _settle()
+        app.removeEventFilter(manager)
+        sip.delete(manager)

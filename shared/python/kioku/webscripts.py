@@ -373,7 +373,8 @@ PHONE_CSS = "".join(_rule(r) for r in (
     "  #innertable #middle > center > table { table-layout: fixed; }",
     "  #innertable #middle td { padding-top: 14px; }",
     "  #innertable #middle button { box-sizing: border-box; width: calc(100% - 8px);"
-    " min-width: 0; min-height: 50px; margin: 4px; font-size: 16px; }",
+    " min-width: 0; min-height: 50px; padding: 8px 4px; margin: 4px;"
+    " font-size: clamp(13px, 3.8vw, 16px); }",
     "  #innertable #middle #ansbut { font-size: 17px; }",
     "}",
 ))

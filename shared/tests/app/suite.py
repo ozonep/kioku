@@ -729,14 +729,14 @@ def t_review_buttons():
     tall (webscripts.PHONE_CSS). Wider screens keep Anki's buttons."""
     yield Until(lambda: mw.state == "review" and mw.reviewer.card is not None
                 and mw.reviewer.state == "question", 15, "a question")
-    js = ("JSON.stringify({coarse: matchMedia('(pointer: coarse)').matches,"
-          " narrow: matchMedia('(max-width: 583px)').matches, width: innerWidth,"
-          " body: document.documentElement.offsetHeight,"
-          " buttons: [...document.querySelectorAll('#innertable #middle button')].map(b => {"
-          " const r = b.getBoundingClientRect();"
-          " return [b.textContent.trim().slice(0, 12), Math.round(r.width), Math.round(r.height)]; })})")
 
-    def measure(what: str):
+    def measure(what: str, selector: str):
+        js = (f"JSON.stringify({{coarse: matchMedia('(pointer: coarse)').matches,"
+              f" narrow: matchMedia('(max-width: 583px)').matches, width: innerWidth,"
+              f" body: document.documentElement.offsetHeight,"
+              f" buttons: [...document.querySelectorAll({json.dumps(selector)})].map(b => {{"
+              f" const r = b.getBoundingClientRect();"
+              f" return [b.textContent.trim().slice(0, 12), Math.round(r.width), Math.round(r.height)]; }})}})")
         info = None
         for _ in range(20):
             info = json.loads((yield Js(mw.bottomWeb, js)) or "null")
@@ -746,12 +746,15 @@ def t_review_buttons():
         check(bool(info and info["buttons"]), f"no {what} buttons: {info}")
         return info
 
-    question = yield from measure("Show Answer")
+    # #ansbut appears only once the question page has painted, so _showAnswer()
+    # won't be dropped; button[data-ease] waits for the answer buttons instead
+    # of matching #ansbut again while the answer paints.
+    question = yield from measure("Show Answer", "#innertable #middle #ansbut")
     if not question["coarse"]:
         raise Skip("no touch screen")
     mw.reviewer._showAnswer()
     yield Until(lambda: mw.reviewer.state == "answer", 10, "answer shown")
-    answer = yield from measure("answer")
+    answer = yield from measure("answer", "#innertable #middle button[data-ease]")
     buttons = question["buttons"] + answer["buttons"]
     if not question["narrow"]:
         big = [b for b in buttons if b[2] >= 44]
@@ -762,7 +765,8 @@ def t_review_buttons():
     for side in (question, answer):
         used = sum(b[1] for b in side["buttons"])
         check(used >= side["width"] * 0.85, f"buttons don't share the bar's width: {side}")
-    yield Until(lambda: mw.bottomWeb.height() >= answer["body"], 5, "the bar shows the buttons whole")
+    need = max(question["body"], answer["body"])
+    yield Until(lambda: mw.bottomWeb.height() >= need, 5, "the bar shows the buttons whole")
     first = answer["buttons"][0]
     return (f"{len(answer['buttons'])} answer buttons {first[1]}x{first[2]}px,"
             f" Show Answer {question['buttons'][0][1]}px wide of {question['width']}")
