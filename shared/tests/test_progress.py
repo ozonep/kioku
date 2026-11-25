@@ -13,7 +13,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest
 from aqt import progress  # before the QApplication: aqt.qt imports Qt WebEngine
 from PyQt6 import sip
-from PyQt6.QtCore import QPoint, QRect
+from PyQt6.QtCore import QMargins, QPoint, QRect
 from PyQt6.QtWidgets import (
     QApplication,
     QDialog,
@@ -70,21 +70,29 @@ def _bars(count: int) -> list[progress.ProgressBarUpdate]:
     ]
 
 
-# an iPhone Air, in points
-@pytest.mark.parametrize(
-    "screen", [QRect(0, 0, 420, 912), QRect(0, 0, 912, 420)], ids=["portrait", "landscape"]
-)
+# an iPhone Air, in points: the screen and its safe area insets
+AIR = [
+    (QRect(0, 0, 420, 912), QMargins(0, 68, 0, 34)),
+    (QRect(0, 0, 912, 420), QMargins(68, 20, 68, 29)),
+]
+
+
+@pytest.mark.parametrize("screen,insets", AIR, ids=["portrait", "landscape"])
 def test_progress_card_stays_on_screen_as_the_fork_adds_to_it(
-    monkeypatch: pytest.MonkeyPatch, screen: QRect
+    monkeypatch: pytest.MonkeyPatch, screen: QRect, insets: QMargins
 ) -> None:
     """The Anki fork's Optimize All Presets adds to its progress window after
     Kioku placed it: a status line that doesn't wrap, a bar for each preset
     being optimized and a log with an 80-character minimum width. On an
     iPhone Air the card grew to 641 points wide (or past the bottom, in
     landscape) and took Cancel off the screen. When a preset is done, the
-    window shrinks to its contents, which left it at the screen's edge."""
+    window shrinks to its contents, which left it at the screen's edge.
+    The card stays inside the safe area: in landscape, three presets'
+    bars took it into the home indicator's strip."""
     monkeypatch.setattr(windows, "_screen_available", lambda: QRect(screen))
+    monkeypatch.setattr(windows, "_screen_insets", lambda: QMargins(insets))
     monkeypatch.setattr(windows, "_rest", None)  # set by WindowManager
+    safe = screen.marginsRemoved(insets)
     manager = windows.WindowManager(app)
     dialog = progress.ProgressDialog(None)
     try:
@@ -96,9 +104,9 @@ def test_progress_card_stays_on_screen_as_the_fork_adds_to_it(
         def check(step: str) -> None:
             _settle()
             rect = dialog.geometry()
-            assert screen.contains(rect), (step, rect)
-            assert screen.contains(QRect(cancel.mapToGlobal(QPoint(0, 0)), cancel.size())), step
-            assert abs(rect.center().x() - screen.center().x()) <= 1, (step, rect)
+            assert safe.contains(rect), (step, rect)
+            assert safe.contains(QRect(cancel.mapToGlobal(QPoint(0, 0)), cancel.size())), step
+            assert abs(rect.center().x() - safe.center().x()) <= 1, (step, rect)
 
         check("shown")
         dialog.form.label.setText(
@@ -106,6 +114,8 @@ def test_progress_card_stays_on_screen_as_the_fork_adds_to_it(
         )
         dialog.set_multi_progress_bars(_bars(2))
         check("status and bars")
+        dialog.set_multi_progress_bars(_bars(3))
+        check("three presets")
         dialog.set_details_text("[SKIP] 1 Presets with 0 reviews")
         check("log")
         dialog.set_multi_progress_bars(_bars(1))

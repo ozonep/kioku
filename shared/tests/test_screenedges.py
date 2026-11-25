@@ -119,3 +119,44 @@ def test_hidden_bar_leaves_the_bottom_safe_area_alone() -> None:
     mw.bottomWeb.hidden = False
     edges.update()
     assert margins(mw) == (0, 59, 0, 0) and edges.bottom.insets == {"bottom": 34}
+
+
+def test_width_change_without_inset_change_refits_bottom_bar() -> None:
+    """iPhone SE / Android 3-button nav: rotating across 583 px changes the
+    review buttons' height even when side and bottom insets stay zero."""
+    mw = Main()
+    mw.handle.margins = QMargins(0, 20, 0, 0)
+    mw.bottomWeb.resize(667, 63)
+    edges = ScreenEdges(mw)
+    before = mw.bottomWeb.adjusted
+    # rotate to portrait: width changes, insets stay zero
+    mw.bottomWeb.resize(375, 63)
+    edges.update()
+    assert mw.bottomWeb.adjusted == before + 1
+    # adjustHeightToFit changes height only: must not re-trigger
+    mw.bottomWeb.resize(375, 77)
+    edges.update()
+    assert mw.bottomWeb.adjusted == before + 1
+
+
+def test_first_review_question_refits_bottom_bar() -> None:
+    """The Anki fork renders #ansbut only after the card paints, so Anki's
+    initial measurement below 583 px (where Edit and More are hidden) can
+    measure an empty bar: refit once when the first question shows."""
+    mw = Main()
+    edges = ScreenEdges(mw)
+    edges._on_state_will_change("review", "overview")
+    before = mw.bottomWeb.adjusted
+    edges._on_question_shown(None)
+    assert mw.bottomWeb.adjusted == before + 1
+    # subsequent cards in the same review session must not re-trigger
+    edges._on_question_shown(None)
+    assert mw.bottomWeb.adjusted == before + 1
+    # re-entering review while the bar is hidden leaves it alone until shown
+    mw.bottomWeb.hidden = True
+    edges._on_state_will_change("review", "overview")
+    edges._on_question_shown(None)
+    assert mw.bottomWeb.adjusted == before + 1
+    mw.bottomWeb.hidden = False
+    edges._on_question_shown(None)
+    assert mw.bottomWeb.adjusted == before + 2

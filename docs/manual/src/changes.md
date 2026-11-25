@@ -27,6 +27,15 @@ All releases: [GitHub Releases](https://github.com/krmanik/kioku/releases).
   that no Anki shortcut uses, also when nothing on the card has focus,
   as on Anki desktop
   ([issue #31](https://github.com/krmanik/kioku/issues/31)).
+- iPhone, iPad: message boxes, small dialogs and the progress window stay
+  clear of the status bar, the Dynamic Island and the home indicator, in
+  landscape too. A message too long for the screen scrolls above its
+  buttons, which used to end up below the screen.
+- iPhone: a tooltip ("Card buried", undo) no longer covers the answer
+  buttons. Before, a tap on them only closed the tooltip.
+- iPhone: bigger buttons on the review screen in portrait. Show Answer
+  spans the screen and the answer buttons share its width, 50 points
+  tall instead of 34.
 
 ## 0.2.11
 

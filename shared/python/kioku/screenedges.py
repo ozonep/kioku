@@ -27,7 +27,12 @@ EVENTS = (QEvent.Type.Resize, QEvent.Type.Show, QEvent.Type.Hide)
 
 
 def apply() -> None:
-    gui_hooks.main_window_did_init.append(lambda: ScreenEdges(aqt.mw))
+    def init() -> None:
+        edges = ScreenEdges(aqt.mw)
+        gui_hooks.state_will_change.append(edges._on_state_will_change)
+        gui_hooks.reviewer_did_show_question.append(edges._on_question_shown)
+
+    gui_hooks.main_window_did_init.append(init)
 
 
 def padding_css(insets: dict[str, int]) -> str:
@@ -125,9 +130,31 @@ class ScreenEdges(QObject):
                 self.corners[corner] = spacer
         self.watching = False
         self._pending = False
+        self._bottom_width: int | None = None
+        self._review_bar_fitted = False
         mw.installEventFilter(self)
         mw.bottomWeb.installEventFilter(self)
         self.update()
+
+    def _on_state_will_change(self, new_state: str, _old_state: str) -> None:
+        if new_state == "review":
+            self._review_bar_fitted = False
+
+    def _on_question_shown(self, _card: Any = None) -> None:
+        """Refit the bottom bar once the first question's Show Answer button
+        is in the page: the Anki fork renders #ansbut only after the card
+        paints, so Anki's initial measurement below 583 px (where Edit and
+        More are hidden) can measure an empty bar."""
+        if self._review_bar_fitted:
+            return
+        mw = self.mw
+        if sip.isdeleted(mw) or sip.isdeleted(mw.bottomWeb):
+            return
+        bar = mw.bottomWeb
+        if bar.isHidden() or getattr(bar, "hidden", False):
+            return
+        self._review_bar_fitted = True
+        bar.adjustHeightToFit()
 
     def eventFilter(self, obj: Any, event: Any) -> bool:
         if event.type() in EVENTS and not self._pending:
@@ -157,7 +184,11 @@ class ScreenEdges(QObject):
         sides = {"left": safe.left(), "right": safe.right(), "bottom": safe.bottom()}
         self.top.set(sides)
         self.main.set(sides)
-        if self.bottom.set(sides if covered else {**sides, "bottom": 0}) and covered:
+        insets_changed = self.bottom.set(sides if covered else {**sides, "bottom": 0})
+        width = bar.width()
+        resized = self._bottom_width is not None and width != self._bottom_width
+        self._bottom_width = width
+        if covered and (insets_changed or resized):
             bar.adjustHeightToFit()
 
     def _pad_menu_bar(self, left: int, right: int) -> None:

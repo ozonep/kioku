@@ -18,6 +18,7 @@ from PyQt6 import sip
 from PyQt6.QtCore import QEvent, QMargins, QObject, QRect, QRectF, QSignalBlocker, QSize, Qt, QTimer
 from PyQt6.QtGui import QGuiApplication
 from PyQt6.QtWidgets import (
+    QWIDGETSIZE_MAX,
     QApplication,
     QAbstractScrollArea,
     QBoxLayout,
@@ -26,6 +27,7 @@ from PyQt6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QLayout,
     QLabel,
@@ -337,6 +339,58 @@ def _is_small_dialog(w: QWidget, avail: QRect) -> bool:
     return _card_size(w, avail).height() <= avail.height() * 0.7
 
 
+MESSAGE_SCROLL = "kiokuMessageScroll"
+
+
+def _scroll_message(box: QMessageBox, label: QLabel, width: int, height: int) -> bool:
+    """Put a message box's text into a scroll area in its place in the
+    box's grid; a drag scrolls it, as on Kioku's other scroll areas."""
+    grid = box.layout()
+    index = grid.indexOf(label) if isinstance(grid, QGridLayout) else -1
+    if index < 0:
+        return False
+    row, col, rows, cols = grid.getItemPosition(index)
+    grid.removeWidget(label)
+    scroll = QScrollArea(box)
+    scroll.setObjectName(MESSAGE_SCROLL)
+    scroll.setWidgetResizable(True)
+    scroll.setFrameShape(QFrame.Shape.NoFrame)
+    for policy in (scroll.setHorizontalScrollBarPolicy, scroll.setVerticalScrollBarPolicy):
+        policy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+    # fix the scroll area to the fitted size so QMessageBox::updateSize()
+    # (queued by LayoutRequest) keeps the box at the safe area instead of
+    # collapsing it to QScrollArea's default 88 px minimum height
+    label.setMinimumWidth(0)
+    label.setMaximumWidth(QWIDGETSIZE_MAX)
+    scroll.setFixedSize(width, height)
+    scroll.setWidget(label)
+    grid.addWidget(scroll, row, col, rows, cols)
+    QScroller.grabGesture(scroll.viewport(), QScroller.ScrollerGestureType.LeftMouseButtonGesture)
+    scroll.show()
+    return True
+
+
+def _unscroll_message(box: QMessageBox) -> None:
+    """Undo _scroll_message, so that QMessageBox can measure its text again."""
+    scroll = box.findChild(QScrollArea, MESSAGE_SCROLL, Qt.FindChildOption.FindDirectChildrenOnly)
+    if scroll is None:
+        return
+    grid = box.layout()
+    label = scroll.widget()
+    index = grid.indexOf(scroll) if isinstance(grid, QGridLayout) else -1
+    # QMessageBox puts its label back itself when it rebuilds its layout
+    if label is not None and label.parentWidget() is scroll.viewport() and index >= 0:
+        row, col, rows, cols = grid.getItemPosition(index)
+        scroll.takeWidget()
+        grid.removeWidget(scroll)
+        grid.addWidget(label, row, col, rows, cols)
+        label.show()
+    # now, not later: the next fit looks for it by name
+    sip.delete(scroll)
+    box.setMinimumSize(0, 0)
+    box.setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX)
+
+
 def _add_cancel(w: QWidget) -> None:
     """Anki's progress window has no buttons (on the desktop, its window's
     close button cancels a sync or Check Media), so it filled the screen and
@@ -398,6 +452,47 @@ def _available() -> QRect:
     if _rest is not None and _keyboard_shrunk(avail):
         return QRect(_rest)
     return avail
+
+
+def _screen_insets() -> QMargins:
+    """The screen's safe area insets: the status bar and Dynamic Island,
+    the rounded corners and the home indicator (an iPhone Air: 68 and 34
+    points in portrait; 20, 29 and 68 at the sides in landscape). Qt gives
+    them to windows only: read from the main window, or from a visible
+    full-screen managed window (ProfileManager, first-run dialogs) while
+    the main window is hidden."""
+    import aqt
+
+    candidates: list[QWidget] = []
+    mw = getattr(aqt, "mw", None)
+    if mw is not None:
+        candidates.append(mw)
+    for w in QApplication.topLevelWidgets():
+        if w is not mw and not sip.isdeleted(w) and WindowManager._bar(w) is not None:
+            candidates.append(w)
+    for w in candidates:
+        try:
+            if sip.isdeleted(w) or not w.isVisible():
+                continue
+            handle = w.windowHandle()
+        except RuntimeError:  # deleted
+            continue
+        if handle is not None and hasattr(handle, "safeAreaMargins"):
+            return handle.safeAreaMargins()
+    return QMargins()
+
+
+def safe_available() -> QRect:
+    """The available geometry less the safe area. Qt reports the whole
+    screen as available on iOS, and cards (message boxes, small dialogs,
+    the progress window) were centred in it with an 8 point margin: tall
+    ones reached under the status bar and the home indicator, and in
+    landscape they ran into the strips beside the Dynamic Island. Cards,
+    tooltips and the contents of windows go inside it; windows still fill
+    the screen and pad themselves by the safe area (_layout)."""
+    avail = _available()
+    safe = avail.marginsRemoved(_screen_insets())
+    return safe if safe.width() > 0 and safe.height() > 0 else avail
 
 
 def _above_keyboard(avail: QRect) -> QRect:
@@ -490,6 +585,12 @@ class WindowManager(QObject):
             for changed in (im.keyboardRectangleChanged, im.visibleChanged):
                 changed.connect(self._recenter_cards)
                 changed.connect(self._relayout_windows)
+        self._insets_handles: list[Any] = []
+        self._refit_pending = False
+        aqt = sys.modules.get("aqt")
+        mw = getattr(aqt, "mw", None) if aqt is not None else None
+        if mw is not None and not sip.isdeleted(mw):
+            self._watch_insets(mw)
 
     def eventFilter(self, obj: QObject | None, evt: QEvent | None) -> bool:
         if evt is None or not isinstance(obj, QWidget):
@@ -510,6 +611,7 @@ class WindowManager(QObject):
                 # after the window's own show logic (e.g. restoring geometry)
                 QTimer.singleShot(0, lambda w=obj: self._adopt(w))
             elif obj is aqt.mw:
+                self._watch_insets(obj)
                 # after loadProfile's raise_(): a message that came up while
                 # the main window was hidden (a sync error while switching
                 # profiles) was left under it, unseen but blocking every tap
@@ -550,19 +652,23 @@ class WindowManager(QObject):
         if sip.isdeleted(w) or not w.isVisible():
             return
         avail = _available()
-        _fit_children(w, avail)
+        safe = safe_available()
+        _fit_children(w, safe)
         if isinstance(w, QMessageBox):
-            self._fit_message_box(w, avail)
+            self._fit_message_box(w, safe)
             self._add_border(w)
             return
         if type(w).__name__ == "ProgressDialog" and w.findChild(QDialogButtonBox) is None:
             _add_cancel(w)
-        if self._bar(w) is None and _is_small_dialog(w, avail):
+        if self._bar(w) is None and _is_small_dialog(w, safe):
             w.setMinimumSize(0, 0)
-            _center(w, _card_size(w, avail), avail)
+            _center(w, _card_size(w, safe), safe)
             self._add_border(w)
             return
         if self._bar(w) is None:
+            border = self._border(w)
+            if border is not None:
+                sip.delete(border)
             # we add the safe area ourselves (Qt would merge it with our
             # margins by taking the larger, hiding the title bar)
             w.setAttribute(Qt.WidgetAttribute.WA_ContentsMarginsRespectsSafeArea, False)
@@ -577,6 +683,7 @@ class WindowManager(QObject):
         w.setMinimumSize(0, 0)
         _fill(w, avail)
         self._layout(w)
+        self._watch_insets(w)
 
     def _refit_card(self, w: QWidget) -> None:
         """Fit and center a card again after something resized it, as _adopt
@@ -587,12 +694,12 @@ class WindowManager(QObject):
         the screen. When a preset is done, it shrinks to its contents
         (adjustSize), which left it narrow at the left edge. A card already
         in place keeps its geometry, so this doesn't repeat."""
-        if sip.isdeleted(w) or not w.isVisible():
+        if sip.isdeleted(w) or not w.isVisible() or self._bar(w) is not None:
             return
-        avail = _available()
-        _fit_children(w, avail)
+        safe = safe_available()
+        _fit_children(w, safe)
         w.setMinimumSize(0, 0)
-        _center(w, _card_size(w, avail), avail)
+        _center(w, _card_size(w, safe), safe)
 
     def _layout(self, w: QWidget) -> None:
         """Margins = safe area + the window's own + the title bar. Qt merges
@@ -628,19 +735,79 @@ class WindowManager(QObject):
         """QMessageBox sizes itself when shown and wraps its text at half
         the screen's width (a desktop rule), so long texts (the sync
         conflict) ran off the bottom. Widen the text label to the screen;
-        the box then computes the height the wrapped text needs."""
+        the box then computes the height the wrapped text needs. Text
+        still too tall (or wider than the safe area) scrolls above the
+        buttons: QMessageBox fixes its own size, so such a box ran past
+        the bottom edge with its buttons or into the side safe area."""
+        _unscroll_message(box)  # fitted before, e.g. in the other orientation
+        max_width = max(0, avail.width() - 2 * CARD_MARGIN)
+        room = max(0, avail.height() - 2 * CARD_MARGIN)
+        info = box.findChild(QLabel, "qt_msgbox_informativelabel")
+        if info is not None:
+            info.setMaximumWidth(QWIDGETSIZE_MAX)
         label = box.findChild(QLabel, "qt_msgbox_label")
+        extra_w = 0
         if label is not None:
-            extra = box.width() - label.width()
-            label.setMinimumWidth(max(0, avail.width() - 2 * CARD_MARGIN - extra))
+            # remember the chrome (icon + margins) from the first fit, before
+            # label.setMinimumWidth can outgrow a screen-clamped box width
+            cached = box.property("kiokuExtraW")
+            if cached is None:
+                cached = max(0, box.width() - label.width())
+                box.setProperty("kiokuExtraW", cached)
+            extra_w = int(cached)
+            box.setMinimumSize(0, 0)
+            box.setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX)
+            label.setMinimumWidth(max(0, max_width - extra_w))
             box.setText(box.text())  # makes QMessageBox recompute its size
-        height = min(box.height(), avail.height() - 2 * CARD_MARGIN)
-        _center(box, QSize(box.width(), height), avail)
+        if info is not None and box.width() > max_width:
+            info.setWordWrap(True)
+            info.setMaximumWidth(max(0, max_width - extra_w))
+            box.setText(box.text())
+        candidates = [w for w in (label, info) if w is not None and w.isVisible()]
+        if candidates and (box.height() > room or box.width() > max_width):
+            target = max(
+                candidates,
+                key=(lambda w: w.height()) if box.height() > room else (lambda w: w.width()),
+            )
+            extra_h = max(0, box.height() - target.height())
+            scroll_w = min(target.width(), max(0, max_width - extra_w))
+            scroll_h = min(target.height(), max(0, room - extra_h))
+            if _scroll_message(box, target, scroll_w, scroll_h):
+                box.setFixedSize(min(box.width(), max_width), min(box.height(), room))
+        elif box.width() > max_width:
+            box.setFixedSize(max_width, min(box.height(), room))
+        _center(box, QSize(min(box.width(), max_width), min(box.height(), room)), avail)
+
+    def _watch_insets(self, w: QWidget) -> None:
+        """Refit open windows and cards when safeAreaMargins changes: on iOS
+        and Android 15 it arrives separately from availableGeometryChanged."""
+        self._insets_handles = [
+            h for h in self._insets_handles if not (isinstance(h, QObject) and sip.isdeleted(h))
+        ]
+        handle = w.windowHandle()
+        if (
+            handle is None
+            or not hasattr(handle, "safeAreaMarginsChanged")
+            or handle in self._insets_handles
+        ):
+            return
+        self._insets_handles.append(handle)
+        handle.safeAreaMarginsChanged.connect(self._insets_changed)
+
+    def _insets_changed(self, _margins: QMargins) -> None:
+        if not self._refit_pending:
+            self._refit_pending = True
+            QTimer.singleShot(0, self._run_refit)
+
+    def _run_refit(self) -> None:
+        self._refit_pending = False
+        if not sip.isdeleted(self):
+            self._refit_all()
 
     def _recenter_cards(self) -> None:
-        avail = _available()
+        avail = safe_available()
         for w in QApplication.topLevelWidgets():
-            if w.isVisible() and self._border(w) is not None:
+            if w.isVisible() and self._bar(w) is None and self._border(w) is not None:
                 _center(w, w.size(), avail)
 
     def _available_changed(self, avail: QRect) -> None:

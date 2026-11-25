@@ -150,16 +150,34 @@ def _tooltip(msg, period=3000, parent=None, x_offset=0, y_offset=100):  # type: 
 
 
 def _fit_tooltip(label) -> None:  # type: ignore[no-untyped-def]
-    """Full width up to the screen's, wrapped beyond it, kept on the screen."""
+    """Full width up to the screen's, wrapped beyond it, kept inside the
+    screen's safe area and above the main window's bottom bar. Anki puts
+    the tooltip 100 px above the window's bottom edge; the bottom bar
+    reaches into the home indicator's area (kioku.screenedges), over 100
+    points tall on an iPhone Air in portrait, so "Card buried" and the
+    like covered the answer buttons, and a tap on them only closed the
+    tooltip."""
     if label is None or label.screen() is None:
         return
-    screen = label.screen().availableGeometry()
-    width = min(label.sizeHint().width(), screen.width() - 16)
+    import aqt
+    from aqt.qt import QPoint
+
+    from .windows import safe_available
+
+    area = safe_available()
+    width = min(label.sizeHint().width(), area.width() - 16)
     if width < label.sizeHint().width():
         label.setWordWrap(True)
     label.resize(width, label.heightForWidth(width) if label.wordWrap() else label.sizeHint().height())
-    x = min(max(label.x(), screen.left() + 8), screen.left() + screen.width() - 8 - width)
-    label.move(x, label.y())
+    x = min(max(label.x(), area.left() + 8), area.left() + area.width() - 8 - width)
+    bottom = area.top() + area.height()
+    mw = aqt.mw
+    bar = getattr(mw, "bottomWeb", None) if mw is not None and label.parentWidget() is mw else None
+    # Anki "hides" the bar by shrinking it to 1 px
+    if bar is not None and bar.isVisible() and bar.height() > 1:
+        bottom = min(bottom, bar.mapToGlobal(QPoint(0, 0)).y())
+    y = max(min(label.y(), bottom - 8 - label.height()), area.top() + 8)
+    label.move(x, y)
 
 
 def _patch_app() -> None:
