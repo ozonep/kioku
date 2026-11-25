@@ -722,6 +722,52 @@ def t_review():
     return f"answered Good, revlog {before} -> {revlog_count(card.id)}, next card shown"
 
 
+def t_review_buttons():
+    """The review screen's bar on a phone in portrait, where Anki hides Edit
+    and More (below 583px): Show Answer and the answer buttons share the
+    bar's width and are at least 44px tall, instead of desktop buttons 34px
+    tall (webscripts.PHONE_CSS). Wider screens keep Anki's buttons."""
+    yield Until(lambda: mw.state == "review" and mw.reviewer.card is not None
+                and mw.reviewer.state == "question", 15, "a question")
+    js = ("JSON.stringify({coarse: matchMedia('(pointer: coarse)').matches,"
+          " narrow: matchMedia('(max-width: 583px)').matches, width: innerWidth,"
+          " body: document.documentElement.offsetHeight,"
+          " buttons: [...document.querySelectorAll('#innertable #middle button')].map(b => {"
+          " const r = b.getBoundingClientRect();"
+          " return [b.textContent.trim().slice(0, 12), Math.round(r.width), Math.round(r.height)]; })})")
+
+    def measure(what: str):
+        info = None
+        for _ in range(20):
+            info = json.loads((yield Js(mw.bottomWeb, js)) or "null")
+            if info and info["buttons"]:
+                break
+            yield 0.5
+        check(bool(info and info["buttons"]), f"no {what} buttons: {info}")
+        return info
+
+    question = yield from measure("Show Answer")
+    if not question["coarse"]:
+        raise Skip("no touch screen")
+    mw.reviewer._showAnswer()
+    yield Until(lambda: mw.reviewer.state == "answer", 10, "answer shown")
+    answer = yield from measure("answer")
+    buttons = question["buttons"] + answer["buttons"]
+    if not question["narrow"]:
+        big = [b for b in buttons if b[2] >= 44]
+        check(not big, f"{question['width']}px wide: Anki's buttons expected [text, width, height]: {big}")
+        return f"{question['width']}px wide: Anki's buttons"
+    small = [b for b in buttons if b[2] < 44]
+    check(not small, f"buttons too small [text, width, height]: {small}")
+    for side in (question, answer):
+        used = sum(b[1] for b in side["buttons"])
+        check(used >= side["width"] * 0.85, f"buttons don't share the bar's width: {side}")
+    yield Until(lambda: mw.bottomWeb.height() >= answer["body"], 5, "the bar shows the buttons whole")
+    first = answer["buttons"][0]
+    return (f"{len(answer['buttons'])} answer buttons {first[1]}x{first[2]}px,"
+            f" Show Answer {question['buttons'][0][1]}px wide of {question['width']}")
+
+
 def t_undo():
     cid = picture_card_id()
     entries = revlog_count(cid)
@@ -1684,6 +1730,7 @@ TESTS = [
     ("numpad-done", t_numpad_done),
     ("study", t_study),
     ("review", t_review),
+    ("review-buttons", t_review_buttons),
     ("undo", t_undo),
     ("review-focus", t_review_focus),
     ("card-keys", t_card_keys),
@@ -1716,6 +1763,7 @@ ALWAYS = {"version", "setup", "add", "cleanup"}
 # what a test needs to have run before it (for ONLY)
 NEEDS = {
     "review": ["study"],
+    "review-buttons": ["study"],
     "undo": ["study", "review"],
     "import-apkg": ["export-apkg"],
     "import-window": ["export-apkg"],

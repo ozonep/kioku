@@ -362,6 +362,20 @@ PHONE_CSS = "".join(_rule(r) for r in (
     "  #outer > #header button {"
     " font-size: 15px; min-height: 44px; box-sizing: border-box; padding: 8px 16px; margin: 4px; }",
     "}",
+    # the review screen's bar had desktop buttons too: Show Answer 106x34
+    # points, the answer buttons 82x34 (an iPhone Air, 420 points wide).
+    # Where Anki hides Edit and More (below 583px), Show Answer and the
+    # answer buttons share the bar's width instead, 50px tall: 94x50 each
+    # on the Air. The intervals stay above the buttons.
+    "@media (pointer: coarse) and (max-width: 583px) {",
+    "  #innertable #middle { padding-left: 6px; padding-right: 6px; }",
+    "  #innertable #middle table, #innertable #middle .stat2 { width: 100%; }",
+    "  #innertable #middle > center > table { table-layout: fixed; }",
+    "  #innertable #middle td { padding-top: 14px; }",
+    "  #innertable #middle button { box-sizing: border-box; width: calc(100% - 8px);"
+    " min-width: 0; min-height: 50px; margin: 4px; font-size: 16px; }",
+    "  #innertable #middle #ansbut { font-size: 17px; }",
+    "}",
 ))
 
 
