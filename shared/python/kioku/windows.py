@@ -361,6 +361,7 @@ def _scroll_message(box: QMessageBox, label: QLabel, width: int, height: int) ->
     # (queued by LayoutRequest) keeps the box at the safe area instead of
     # collapsing it to QScrollArea's default 88 px minimum height
     label.setMinimumWidth(0)
+    label.setMaximumWidth(QWIDGETSIZE_MAX)
     scroll.setFixedSize(width, height)
     scroll.setWidget(label)
     grid.addWidget(scroll, row, col, rows, cols)
@@ -665,6 +666,9 @@ class WindowManager(QObject):
             self._add_border(w)
             return
         if self._bar(w) is None:
+            border = self._border(w)
+            if border is not None:
+                sip.delete(border)
             # we add the safe area ourselves (Qt would merge it with our
             # margins by taking the larger, hiding the title bar)
             w.setAttribute(Qt.WidgetAttribute.WA_ContentsMarginsRespectsSafeArea, False)
@@ -690,7 +694,7 @@ class WindowManager(QObject):
         the screen. When a preset is done, it shrinks to its contents
         (adjustSize), which left it narrow at the left edge. A card already
         in place keeps its geometry, so this doesn't repeat."""
-        if sip.isdeleted(w) or not w.isVisible():
+        if sip.isdeleted(w) or not w.isVisible() or self._bar(w) is not None:
             return
         safe = safe_available()
         _fit_children(w, safe)
@@ -759,11 +763,16 @@ class WindowManager(QObject):
             info.setWordWrap(True)
             info.setMaximumWidth(max(0, max_width - extra_w))
             box.setText(box.text())
-        if label is not None and (box.height() > room or box.width() > max_width):
-            extra_h = max(0, box.height() - label.height())
-            scroll_w = min(label.width(), max(0, max_width - extra_w))
-            scroll_h = min(label.height(), max(0, room - extra_h))
-            if _scroll_message(box, label, scroll_w, scroll_h):
+        candidates = [w for w in (label, info) if w is not None and w.isVisible()]
+        if candidates and (box.height() > room or box.width() > max_width):
+            target = max(
+                candidates,
+                key=(lambda w: w.height()) if box.height() > room else (lambda w: w.width()),
+            )
+            extra_h = max(0, box.height() - target.height())
+            scroll_w = min(target.width(), max(0, max_width - extra_w))
+            scroll_h = min(target.height(), max(0, room - extra_h))
+            if _scroll_message(box, target, scroll_w, scroll_h):
                 box.setFixedSize(min(box.width(), max_width), min(box.height(), room))
         elif box.width() > max_width:
             box.setFixedSize(max_width, min(box.height(), room))
@@ -798,7 +807,7 @@ class WindowManager(QObject):
     def _recenter_cards(self) -> None:
         avail = safe_available()
         for w in QApplication.topLevelWidgets():
-            if w.isVisible() and self._border(w) is not None:
+            if w.isVisible() and self._bar(w) is None and self._border(w) is not None:
                 _center(w, w.size(), avail)
 
     def _available_changed(self, avail: QRect) -> None:

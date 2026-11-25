@@ -137,3 +137,26 @@ def test_width_change_without_inset_change_refits_bottom_bar() -> None:
     mw.bottomWeb.resize(375, 77)
     edges.update()
     assert mw.bottomWeb.adjusted == before + 1
+
+
+def test_first_review_question_refits_bottom_bar() -> None:
+    """The Anki fork renders #ansbut only after the card paints, so Anki's
+    initial measurement below 583 px (where Edit and More are hidden) can
+    measure an empty bar: refit once when the first question shows."""
+    mw = Main()
+    edges = ScreenEdges(mw)
+    edges._on_state_will_change("review", "overview")
+    before = mw.bottomWeb.adjusted
+    edges._on_question_shown(None)
+    assert mw.bottomWeb.adjusted == before + 1
+    # subsequent cards in the same review session must not re-trigger
+    edges._on_question_shown(None)
+    assert mw.bottomWeb.adjusted == before + 1
+    # re-entering review while the bar is hidden leaves it alone until shown
+    mw.bottomWeb.hidden = True
+    edges._on_state_will_change("review", "overview")
+    edges._on_question_shown(None)
+    assert mw.bottomWeb.adjusted == before + 1
+    mw.bottomWeb.hidden = False
+    edges._on_question_shown(None)
+    assert mw.bottomWeb.adjusted == before + 2

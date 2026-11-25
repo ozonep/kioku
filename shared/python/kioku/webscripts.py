@@ -369,7 +369,7 @@ PHONE_CSS = "".join(_rule(r) for r in (
     # on the Air. The intervals stay above the buttons.
     "@media (pointer: coarse) and (max-width: 583px) {",
     "  #innertable #middle { padding-left: 6px; padding-right: 6px; }",
-    "  #innertable #middle table, #innertable #middle .stat2 { width: 100%; }",
+    "  #innertable #middle table, #innertable #middle .stat2 { width: 100%; border-spacing: 0; }",
     "  #innertable #middle > center > table { table-layout: fixed; }",
     "  #innertable #middle td { padding-top: 14px; }",
     "  #innertable #middle button { box-sizing: border-box; width: calc(100% - 8px);"

@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
     QApplication,
     QDialog,
     QDialogButtonBox,
+    QLabel,
     QMessageBox,
     QScrollArea,
     QVBoxLayout,
@@ -173,6 +174,39 @@ def test_a_wide_informative_message_stays_inside_the_safe_area(screen) -> None: 
         _settle()
 
 
+@pytest.mark.parametrize("geometry", [PORTRAIT, LANDSCAPE], ids=["portrait", "landscape"])
+def test_long_informative_message_scrolls_and_keeps_heading(
+    screen, geometry
+) -> None:  # type: ignore[no-untyped-def]
+    """Long informativeText scrolls inside the safe area while keeping the
+    main heading visible and the buttons on screen."""
+    use, _manager = screen
+    safe = use(geometry)
+    box = QMessageBox(
+        QMessageBox.Icon.Warning,
+        "Kioku",
+        "Short heading",
+        QMessageBox.StandardButton.Ok,
+    )
+    box.setInformativeText(LONG)
+    box.show()
+    _settle()
+    try:
+        _inside(box, safe)
+        assert box.height() == safe.height() - 2 * windows.CARD_MARGIN
+        scroll = _scroll(box)
+        assert scroll is not None
+        info = box.findChild(QLabel, "qt_msgbox_informativelabel")
+        label = box.findChild(QLabel, "qt_msgbox_label")
+        assert scroll.widget() is info
+        assert scroll.verticalScrollBar().maximum() > 0
+        assert label is not None and label.height() > 0
+        assert safe.contains(QRect(label.mapToGlobal(QPoint(0, 0)), label.size()))
+    finally:
+        box.close()
+        _settle()
+
+
 def test_small_dialog_is_judged_against_the_safe_area(screen) -> None:  # type: ignore[no-untyped-def]
     """A dialog taller than 70% of the safe area height (260 pt in landscape)
     but under 70% of the whole screen (294 pt) gets a full-screen window,
@@ -189,6 +223,40 @@ def test_small_dialog_is_judged_against_the_safe_area(screen) -> None:  # type: 
     _settle()
     try:
         assert windows.WindowManager._bar(dialog) is not None
+    finally:
+        dialog.close()
+        _settle()
+
+
+def test_card_promoted_to_window_on_rotation_drops_border_and_ignores_recenter(
+    screen,
+) -> None:  # type: ignore[no-untyped-def]
+    """A dialog that fits as a card in portrait becomes a full-screen window
+    in landscape: its card border must be removed so _recenter_cards() and
+    _refit_card() leave the full-screen window alone."""
+    use, manager = screen
+    use(PORTRAIT)
+    dialog = QDialog()
+    layout = QVBoxLayout(dialog)
+    body = QWidget(dialog)
+    body.setMinimumHeight(230)
+    layout.addWidget(body)
+    layout.addWidget(QDialogButtonBox(QDialogButtonBox.StandardButton.Ok, dialog))
+    dialog.show()
+    _settle()
+    try:
+        assert windows.WindowManager._bar(dialog) is None
+        assert windows.WindowManager._border(dialog) is not None
+        use(LANDSCAPE)
+        manager._refit_all()
+        _settle()
+        assert windows.WindowManager._bar(dialog) is not None
+        assert windows.WindowManager._border(dialog) is None
+        assert dialog.geometry() == LANDSCAPE[0]
+        manager._recenter_cards()
+        manager._refit_card(dialog)
+        _settle()
+        assert dialog.geometry() == LANDSCAPE[0]
     finally:
         dialog.close()
         _settle()
