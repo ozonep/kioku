@@ -27,6 +27,10 @@ All releases: [GitHub Releases](https://github.com/krmanik/kioku/releases).
   that no Anki shortcut uses, also when nothing on the card has focus,
   as on Anki desktop
   ([issue #31](https://github.com/krmanik/kioku/issues/31)).
+- iPhone, iPad: message boxes, small dialogs and the progress window stay
+  clear of the status bar, the Dynamic Island and the home indicator, in
+  landscape too. A message too long for the screen scrolls above its
+  buttons, which used to end up below the screen.
 
 ## 0.2.11
 

@@ -18,6 +18,7 @@ from PyQt6 import sip
 from PyQt6.QtCore import QEvent, QMargins, QObject, QRect, QRectF, QSignalBlocker, QSize, Qt, QTimer
 from PyQt6.QtGui import QGuiApplication
 from PyQt6.QtWidgets import (
+    QWIDGETSIZE_MAX,
     QApplication,
     QAbstractScrollArea,
     QBoxLayout,
@@ -26,6 +27,7 @@ from PyQt6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QLayout,
     QLabel,
@@ -337,6 +339,56 @@ def _is_small_dialog(w: QWidget, avail: QRect) -> bool:
     return _card_size(w, avail).height() <= avail.height() * 0.7
 
 
+MESSAGE_SCROLL = "kiokuMessageScroll"
+
+
+def _scroll_message(box: QMessageBox, label: QLabel) -> bool:
+    """Put a message box's text into a scroll area in its place in the
+    box's grid; a drag scrolls it, as on Kioku's other scroll areas."""
+    grid = box.layout()
+    index = grid.indexOf(label) if isinstance(grid, QGridLayout) else -1
+    if index < 0:
+        return False
+    row, col, rows, cols = grid.getItemPosition(index)
+    width = label.width()
+    grid.removeWidget(label)
+    scroll = QScrollArea(box)
+    scroll.setObjectName(MESSAGE_SCROLL)
+    scroll.setWidgetResizable(True)
+    scroll.setFrameShape(QFrame.Shape.NoFrame)
+    for policy in (scroll.setHorizontalScrollBarPolicy, scroll.setVerticalScrollBarPolicy):
+        policy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+    # the column keeps the width the box was fitted for
+    label.setMinimumWidth(0)
+    scroll.setMinimumWidth(width)
+    scroll.setWidget(label)
+    grid.addWidget(scroll, row, col, rows, cols)
+    QScroller.grabGesture(scroll.viewport(), QScroller.ScrollerGestureType.LeftMouseButtonGesture)
+    scroll.show()
+    return True
+
+
+def _unscroll_message(box: QMessageBox) -> None:
+    """Undo _scroll_message, so that QMessageBox can measure its text again."""
+    scroll = box.findChild(QScrollArea, MESSAGE_SCROLL, Qt.FindChildOption.FindDirectChildrenOnly)
+    if scroll is None:
+        return
+    grid = box.layout()
+    label = scroll.widget()
+    index = grid.indexOf(scroll) if isinstance(grid, QGridLayout) else -1
+    # QMessageBox puts its label back itself when it rebuilds its layout
+    if label is not None and label.parentWidget() is scroll.viewport() and index >= 0:
+        row, col, rows, cols = grid.getItemPosition(index)
+        scroll.takeWidget()
+        grid.removeWidget(scroll)
+        grid.addWidget(label, row, col, rows, cols)
+        label.show()
+    # now, not later: the next fit looks for it by name
+    sip.delete(scroll)
+    box.setMinimumSize(0, 0)
+    box.setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX)
+
+
 def _add_cancel(w: QWidget) -> None:
     """Anki's progress window has no buttons (on the desktop, its window's
     close button cancels a sync or Check Media), so it filled the screen and
@@ -398,6 +450,38 @@ def _available() -> QRect:
     if _rest is not None and _keyboard_shrunk(avail):
         return QRect(_rest)
     return avail
+
+
+def _screen_insets() -> QMargins:
+    """The screen's safe area insets: the status bar and Dynamic Island,
+    the rounded corners and the home indicator (an iPhone Air: 68 and 34
+    points in portrait; 20, 29 and 68 at the sides in landscape). Qt gives
+    them to windows only, and the main window fills the screen."""
+    import aqt
+
+    mw = getattr(aqt, "mw", None)
+    try:
+        if mw is None or sip.isdeleted(mw) or not mw.isVisible():
+            return QMargins()
+        handle = mw.windowHandle()
+    except RuntimeError:  # deleted
+        return QMargins()
+    if handle is None or not hasattr(handle, "safeAreaMargins"):
+        return QMargins()
+    return handle.safeAreaMargins()
+
+
+def safe_available() -> QRect:
+    """The available geometry less the safe area. Qt reports the whole
+    screen as available on iOS, and cards (message boxes, small dialogs,
+    the progress window) were centred in it with an 8 point margin: tall
+    ones reached under the status bar and the home indicator, and in
+    landscape they ran into the strips beside the Dynamic Island. Cards,
+    tooltips and the contents of windows go inside it; windows still fill
+    the screen and pad themselves by the safe area (_layout)."""
+    avail = _available()
+    safe = avail.marginsRemoved(_screen_insets())
+    return safe if safe.width() > 0 and safe.height() > 0 else avail
 
 
 def _above_keyboard(avail: QRect) -> QRect:
@@ -550,16 +634,17 @@ class WindowManager(QObject):
         if sip.isdeleted(w) or not w.isVisible():
             return
         avail = _available()
-        _fit_children(w, avail)
+        safe = safe_available()
+        _fit_children(w, safe)
         if isinstance(w, QMessageBox):
-            self._fit_message_box(w, avail)
+            self._fit_message_box(w, safe)
             self._add_border(w)
             return
         if type(w).__name__ == "ProgressDialog" and w.findChild(QDialogButtonBox) is None:
             _add_cancel(w)
         if self._bar(w) is None and _is_small_dialog(w, avail):
             w.setMinimumSize(0, 0)
-            _center(w, _card_size(w, avail), avail)
+            _center(w, _card_size(w, safe), safe)
             self._add_border(w)
             return
         if self._bar(w) is None:
@@ -589,10 +674,10 @@ class WindowManager(QObject):
         in place keeps its geometry, so this doesn't repeat."""
         if sip.isdeleted(w) or not w.isVisible():
             return
-        avail = _available()
-        _fit_children(w, avail)
+        safe = safe_available()
+        _fit_children(w, safe)
         w.setMinimumSize(0, 0)
-        _center(w, _card_size(w, avail), avail)
+        _center(w, _card_size(w, safe), safe)
 
     def _layout(self, w: QWidget) -> None:
         """Margins = safe area + the window's own + the title bar. Qt merges
@@ -628,17 +713,22 @@ class WindowManager(QObject):
         """QMessageBox sizes itself when shown and wraps its text at half
         the screen's width (a desktop rule), so long texts (the sync
         conflict) ran off the bottom. Widen the text label to the screen;
-        the box then computes the height the wrapped text needs."""
+        the box then computes the height the wrapped text needs. Text
+        still too tall scrolls above the buttons: QMessageBox fixes its
+        own size, so such a box ran past the bottom edge with its buttons."""
+        _unscroll_message(box)  # fitted before, e.g. in the other orientation
         label = box.findChild(QLabel, "qt_msgbox_label")
         if label is not None:
             extra = box.width() - label.width()
             label.setMinimumWidth(max(0, avail.width() - 2 * CARD_MARGIN - extra))
             box.setText(box.text())  # makes QMessageBox recompute its size
-        height = min(box.height(), avail.height() - 2 * CARD_MARGIN)
-        _center(box, QSize(box.width(), height), avail)
+        room = avail.height() - 2 * CARD_MARGIN
+        if label is not None and box.height() > room and _scroll_message(box, label):
+            box.setFixedSize(box.width(), room)
+        _center(box, QSize(box.width(), min(box.height(), room)), avail)
 
     def _recenter_cards(self) -> None:
-        avail = _available()
+        avail = safe_available()
         for w in QApplication.topLevelWidgets():
             if w.isVisible() and self._border(w) is not None:
                 _center(w, w.size(), avail)
