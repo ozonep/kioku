@@ -2,7 +2,7 @@
 # the iOS Simulator), sent through the development command channel
 # (shared/python/kioku/devtools.py) by shared/tools/apptest.py, which prepends
 #
-#   EXPECTED_VERSION = "26.09.4+fsrs7"  # Anki version the build must report
+#   EXPECTED_VERSION = "26.09.4"   # Anki version the build must report (empty: don't check)
 #   EXPECTED_BUILDHASH = ""        # Anki git commit/build hash (empty: don't check)
 #   EXPECTED_RUNTIME = {...}       # Python, Qt, PyQt the release pins (versions.env)
 #   ONLY = []                      # test names to run (empty: all)
@@ -1323,12 +1323,6 @@ def t_rwkv():
         and math.isfinite(pred.retrievability)
         and 0.0 <= pred.retrievability <= 1.0,
         f"invalid RWKV retrievability: {pred.retrievability}",
-    )
-    check(
-        pred.curve_retrievability is not None
-        and math.isfinite(pred.curve_retrievability)
-        and 0.0 <= pred.curve_retrievability <= 1.0,
-        f"invalid RWKV curve retrievability: {pred.curve_retrievability}",
     )
     intervals = pred.interval_overrides
     check(

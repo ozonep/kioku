@@ -11,8 +11,7 @@
 #      it is committed now (from this repository's folder):
 #        KIOKU_ANKI_REPO=../anki KIOKU_ANKI_COMMIT=HEAD ios/tools/build.sh
 #      A clone's path is relative to the current directory; a commit is a
-#      hash (all 40 digits for a URL), or a branch, tag or HEAD of that
-#      repository.
+#      40-digit hash, or (for a local clone) a branch, tag, short hash or HEAD.
 # Usage: anki_source.sh [--fork] <dir>
 set -euo pipefail
 SHARED=$(cd "$(dirname "$0")/.." && pwd)
@@ -60,31 +59,14 @@ else
         echo "No Anki clone at $REPO (relative to $PWD)" >&2
         exit 1
     fi
-    # a branch, tag or HEAD: the commit it names now
+    # a local clone also takes a branch, tag, short hash or HEAD; a URL needs
+    # the full 40-digit commit hash
     if [[ ! $COMMIT =~ ^[0-9a-f]{40}$ ]]; then
-        if [ -d "$REPO" ]; then
-            resolved=$(git -C "$REPO" rev-parse --verify -q "$COMMIT^{commit}" || true)
-        else
-            # ls-remote also lists refs that only end in /$COMMIT: take the
-            # exact one, in git rev-parse's order (HEAD or a full name, refs/,
-            # tags, heads, remotes, remotes/*/HEAD); an annotated tag's commit
-            # is its peeled ^{} entry
-            resolved=$(git ls-remote -- "$REPO" "$COMMIT" "$COMMIT^{}" \
-                "refs/remotes/$COMMIT/HEAD" "refs/remotes/$COMMIT/HEAD^{}" | awk -v name="$COMMIT" '
-                { sha[$2] = $1 }
-                END {
-                    refs[1] = name
-                    refs[2] = "refs/" name
-                    refs[3] = "refs/tags/" name
-                    refs[4] = "refs/heads/" name
-                    refs[5] = "refs/remotes/" name
-                    refs[6] = "refs/remotes/" name "/HEAD"
-                    for (i = 1; i <= 6; i++) {
-                        if ((refs[i] "^{}") in sha) { print sha[refs[i] "^{}"]; exit }
-                        if (refs[i] in sha) { print sha[refs[i]]; exit }
-                    }
-                }')
+        if [ ! -d "$REPO" ]; then
+            echo "$REPO needs a 40-digit commit hash (got $COMMIT); use a local clone for names" >&2
+            exit 1
         fi
+        resolved=$(git -C "$REPO" rev-parse --verify -q "$COMMIT^{commit}" || true)
         if [ -z "$resolved" ]; then
             echo "$REPO has no commit $COMMIT" >&2
             exit 1

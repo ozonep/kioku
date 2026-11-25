@@ -56,6 +56,8 @@ if [ -d "$RWKV" ]; then
             cp "$RWKV/WEIGHTS-NOTICE.md" "$model"
         done
     fi
+fi
+if [ -d "$RWKV" ] || [ -f "$SITE/aqt/rwkv_model.py" ]; then
     "$PYTHON" -I -c 'import pathlib, runpy, sys
 aqt = pathlib.Path(sys.argv[1])
 gone = [str(f) for f in runpy.run_path(str(aqt / "rwkv_model.py"))["RWKV_MODEL_FILES"].values()

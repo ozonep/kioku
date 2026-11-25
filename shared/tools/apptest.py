@@ -257,12 +257,12 @@ def expected_anki(
     target: str, pins: dict[str, str], commit_override: str | None = None
 ) -> tuple[str, str]:
     """Expected Anki version and git commit/build hash for target."""
-    # the iPhone and iPad run the Anki fork, native Android Anki's release
+    # the iPhone and iPad run the Anki fork (checked by commit hash), native Android Anki's release
     if target == "android":
         version = pins.get("ANKI_TAG", "")
         commit = ""
     else:
-        version = pins.get("ANKI_FORK_VERSION", "")
+        version = ""
         commit = pins.get("ANKI_FORK_COMMIT", "")
     if commit_override is not None:
         commit = commit_override
@@ -413,8 +413,11 @@ def main() -> int:
         return 2
 
     sections: dict[str, tuple[list[dict], str]] = {}
-    expected_desc = f"{expected} ({expected_commit[:8]})" if expected_commit else expected
-    print(f"== in-app tests (Anki {expected_desc} expected)")
+    expected_parts = [p for p in (expected, expected_commit[:8]) if p]
+    if expected_parts:
+        print(f"== in-app tests (Anki {' '.join(expected_parts)} expected)")
+    else:
+        print("== in-app tests")
     only = [t for t in args.only.split(",") if t]
     sections["flows"] = run_suite(target, expected, expected_commit, only, not args.no_network, args.timeout)
     if sections["flows"][1]:

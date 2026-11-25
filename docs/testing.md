@@ -58,7 +58,7 @@ removes it at the end:
 
 | Test | What it does |
 | --- | --- |
-| version, profile | Anki is `ANKI_FORK_VERSION` at `ANKI_FORK_COMMIT` (iPhone, iPad; `--anki-commit` overrides) or `ANKI_TAG` (Android); a profile and collection are open |
+| version, profile | Anki is at `ANKI_FORK_COMMIT` (iPhone, iPad; `--anki-commit` overrides) or `ANKI_TAG` (Android); a profile and collection are open |
 | add | adds Basic and Cloze notes, one with a picture |
 | add-window | Add window: the note's text reaches the editor page, Add saves it to the deck, the editor clears; `activeWindow()` is Add |
 | editor-formatting | Add window: on a selection in a field, bold, italic, underline, superscript, subscript (on and off again), text colour, highlight, remove formatting, MathJax inline, cloze (Cloze note); underline at the caret, then a typed letter is underlined |

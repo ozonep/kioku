@@ -2,8 +2,9 @@
 - an older fork checkout without WEIGHTS-NOTICE.md, or with no model folders,
   packages without failing; when WEIGHTS-NOTICE.md is present it goes into
   actual model folders only (not __pycache__)
-- trimming *.pth and *.int8.bin stops the build if a file listed in
-  aqt/rwkv_model.py's RWKV_MODEL_FILES is missing afterwards
+- trimming *.pth and *.int8.bin or removing _aqt/rwkv_inference stops the build
+  if a file listed in aqt/rwkv_model.py's RWKV_MODEL_FILES is missing afterwards
+  (including when aqt/rwkv_inference itself is absent)
 - anki_wheels.sh stops without writing kioku-source when either the anki or
   the aqt wheel is missing after ./ninja wheels"""
 
@@ -219,6 +220,23 @@ def test_prepare_site_fails_when_referenced_model_was_trimmed(tmp_path: Path) ->
     )
     assert res.returncode != 0
     assert "sm118/weights.int8.bin" in res.stderr
+
+
+def test_prepare_site_fails_when_rwkv_inference_dir_is_missing(tmp_path: Path) -> None:
+    """If a wheel layout change puts weights only under _aqt/rwkv_inference,
+    removing _aqt/rwkv_inference must not silently ship a bundle with no models."""
+    res, _site = _run_prepare(
+        tmp_path,
+        {
+            "aqt/rwkv_model.py": (
+                "from pathlib import Path\n"
+                'RWKV_MODEL_FILES = {"sm118": Path("sm118/weights.f32.bin")}\n'
+            ),
+            "_aqt/rwkv_inference/sm118/weights.f32.bin": b"only-in-_aqt",
+        },
+    )
+    assert res.returncode != 0
+    assert "sm118/weights.f32.bin" in res.stderr
 
 
 @pytest.mark.parametrize("missing", ["anki", "aqt"])

@@ -53,6 +53,10 @@ jobs:
 
       - uses: astral-sh/setup-uv@v6
 
+      - name: Script tests
+        working-directory: .
+        run: uvx pytest -q -p no:cacheprovider shared/tests/test_anki_source.py shared/tests/test_prepare_site.py
+
       - name: Tools
         run: |
           brew install protobuf swig ninja pkgconf

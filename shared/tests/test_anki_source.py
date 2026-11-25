@@ -1,9 +1,7 @@
-"""shared/tools/anki_source.sh --fork checks out the commit a name has in the
-fork's repository, as git rev-parse finds it, whether the repository is a URL
-(the script reads git ls-remote) or a local clone, and keeps the builds
-(target/, out/) of the checkout it replaces. It checked out the nested tag
-foo/main's commit for main, and a folder given with a trailing slash was
-deleted, builds and all."""
+"""shared/tools/anki_source.sh --fork checks out a 40-digit commit hash from a
+URL or any name git rev-parse resolves in a local clone, and keeps the builds
+(target/, out/) of the checkout it replaces. A folder given with a trailing
+slash was deleted, builds and all."""
 
 from __future__ import annotations
 
@@ -85,23 +83,23 @@ def source(fork: Path, folder: str, commit: str = "", repo: str = "", cwd: Path 
     )
 
 
-@pytest.mark.parametrize("how", ["url", "clone"])
-def test_names_resolve_as_git_rev_parse(fork: Path, how: str) -> None:
-    repo = fork.as_uri() if how == "url" else str(fork)
+def test_names_resolve_as_git_rev_parse(fork: Path) -> None:
     anki = fork.parent / "anki"
     names = ["HEAD", "main", "codex/main", "refs/heads/codex/main", "v1", "foo/main", "both"]
     for name in names + [commit_of(fork, "v1")]:
-        run = source(fork, str(anki), name, repo)
+        run = source(fork, str(anki), name, str(fork))
         assert run.returncode == 0, (name, run.stderr)
         assert git(anki, "rev-parse", "HEAD") == commit_of(fork, name), name
         assert (anki / "kioku.txt").read_text() == "patched\n", name
 
 
-def test_unknown_names_stop(fork: Path) -> None:
-    short = git(fork, "rev-parse", "--short", "HEAD")  # a URL's needs all 40 digits
-    for repo, name in [(fork.as_uri(), "nope"), (str(fork), "nope"), (fork.as_uri(), short)]:
-        run = source(fork, str(fork.parent / "anki"), name, repo)
-        assert run.returncode == 1 and "has no commit" in run.stderr, (repo, name, run.stderr)
+def test_unknown_names_and_url_names_stop(fork: Path) -> None:
+    run = source(fork, str(fork.parent / "anki"), "nope", str(fork))
+    assert run.returncode == 1 and "has no commit" in run.stderr, run.stderr
+    short = git(fork, "rev-parse", "--short", "HEAD")
+    for name in ("main", "nope", short):
+        run = source(fork, str(fork.parent / "anki"), name, fork.as_uri())
+        assert run.returncode == 1 and "40-digit commit hash" in run.stderr, (name, run.stderr)
 
 
 def test_clone_path_is_relative_to_the_current_folder(fork: Path) -> None:
@@ -117,7 +115,7 @@ def test_clone_path_is_relative_to_the_current_folder(fork: Path) -> None:
 @pytest.mark.parametrize("slash", ["", "/", "//"])
 def test_another_commit_keeps_the_builds(fork: Path, slash: str) -> None:
     anki = fork.parent / "anki"
-    assert source(fork, str(anki), "v1").returncode == 0
+    assert source(fork, str(anki), commit_of(fork, "v1")).returncode == 0
     (anki / "target" / "release").mkdir(parents=True)
     (anki / "out").mkdir()
     (anki / "out" / "buildhash").write_text("old")
